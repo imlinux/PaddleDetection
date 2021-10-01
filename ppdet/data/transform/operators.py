@@ -35,17 +35,16 @@ import os
 import copy
 
 import cv2
-from PIL import Image, ImageEnhance, ImageDraw
+from PIL import Image, ImageDraw
 
 from ppdet.core.workspace import serializable
-from ppdet.modeling.layers import AnchorGrid
 from ppdet.modeling import bbox_utils
 
 from .op_helper import (satisfy_sample_constraint, filter_and_process,
                         generate_sample_bbox, clip_bbox, data_anchor_sampling,
                         satisfy_sample_constraint_coverage, crop_image_sampling,
                         generate_sample_bbox_square, bbox_area_sampling,
-                        is_poly, gaussian_radius, draw_gaussian)
+                        is_poly, transform_bbox)
 
 from ppdet.utils.logger import setup_logger
 logger = setup_logger(__name__)
@@ -107,12 +106,10 @@ class BaseOperator(object):
 
 @register_op
 class Decode(BaseOperator):
-    def __init__(self, to_rgb=True):
+    def __init__(self):
         """ Transform the image data to numpy format following the rgb format
         """
         super(Decode, self).__init__()
-        # TODO: remove this parameter
-        self.to_rgb = to_rgb
 
     def apply(self, sample, context=None):
         """ load image if 'im_file' field is not empty but 'image' is"""
@@ -126,14 +123,13 @@ class Decode(BaseOperator):
         im = cv2.imdecode(data, 1)  # BGR mode, but need RGB mode
         if 'keep_ori_im' in sample and sample['keep_ori_im']:
             sample['ori_image'] = im
-        if self.to_rgb:
-            im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
+        im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
 
         sample['image'] = im
         if 'h' not in sample:
             sample['h'] = im.shape[0]
         elif sample['h'] != im.shape[0]:
-            logger.warn(
+            logger.warning(
                 "The actual image height: {} is not equal to the "
                 "height: {} in annotation, and update sample['h'] by actual "
                 "image height.".format(im.shape[0], sample['h']))
@@ -141,7 +137,7 @@ class Decode(BaseOperator):
         if 'w' not in sample:
             sample['w'] = im.shape[1]
         elif sample['w'] != im.shape[1]:
-            logger.warn(
+            logger.warning(
                 "The actual image width: {} is not equal to the "
                 "width: {} in annotation, and update sample['w'] by actual "
                 "image width.".format(im.shape[1], sample['w']))
@@ -154,18 +150,14 @@ class Decode(BaseOperator):
 
 @register_op
 class Permute(BaseOperator):
-    def __init__(self, to_rgb=False):
+    def __init__(self):
         """
         Change the channel to be (C, H, W)
         """
         super(Permute, self).__init__()
-        # TODO: remove this parameter
-        self.to_rgb = to_rgb
 
     def apply(self, sample, context=None):
         im = sample['image']
-        if self.to_rgb:
-            im = np.ascontiguousarray(im[:, :, ::-1])
         im = im.transpose((2, 0, 1))
         sample['image'] = im
         return sample
@@ -207,7 +199,7 @@ class RandomErasingImage(BaseOperator):
         super(RandomErasingImage, self).__init__()
         self.prob = prob
         self.lower = lower
-        self.heigher = heigher
+        self.higher = higher
         self.aspect_ratio = aspect_ratio
 
     def apply(self, sample):
@@ -732,7 +724,7 @@ class Resize(BaseOperator):
         # apply rbox
         if 'gt_rbox2poly' in sample:
             if np.array(sample['gt_rbox2poly']).shape[1] != 8:
-                logger.warn(
+                logger.warning(
                     "gt_rbox2poly's length shoule be 8, but actually is {}".
                     format(len(sample['gt_rbox2poly'])))
             sample['gt_rbox2poly'] = self.apply_bbox(sample['gt_rbox2poly'],
@@ -1774,8 +1766,8 @@ class DebugVisibleImage(BaseOperator):
             raise TypeError("{}: input type is invalid.".format(self))
 
     def apply(self, sample, context=None):
-        image = Image.open(sample['im_file']).convert('RGB')
-        out_file_name = sample['im_file'].split('/')[-1]
+        image = Image.fromarray(sample['image'].astype(np.uint8))
+        out_file_name = '{:012d}.jpg'.format(sample['im_id'][0])
         width = sample['w']
         height = sample['h']
         gt_bbox = sample['gt_bbox']
@@ -2099,4 +2091,183 @@ class BboxCXCYWH2XYXY(BaseOperator):
         bbox[:, :2] = bbox0[:, :2] - bbox0[:, 2:4] / 2.
         bbox[:, 2:4] = bbox0[:, :2] + bbox0[:, 2:4] / 2.
         sample['gt_bbox'] = bbox
+        return sample
+
+
+@register_op
+class RandomPerspective(BaseOperator):
+    """
+    Rotate, tranlate, scale, shear and perspect image and bboxes randomly,
+    refer to https://github.com/ultralytics/yolov5/blob/develop/utils/datasets.py
+
+    Args:
+        degree (int): rotation degree, uniformly sampled in [-degree, degree]
+        translate (float): translate fraction, translate_x and translate_y are uniformly sampled
+            in [0.5 - translate, 0.5 + translate]
+        scale (float): scale factor, uniformly sampled in [1 - scale, 1 + scale]
+        shear (int): shear degree, shear_x and shear_y are uniformly sampled in [-shear, shear]
+        perspective (float): perspective_x and perspective_y are uniformly sampled in [-perspective, perspective]
+        area_thr (float): the area threshold of bbox to be kept after transformation, default 0.25
+        fill_value (tuple): value used in case of a constant border, default (114, 114, 114)
+    """
+
+    def __init__(self,
+                 degree=10,
+                 translate=0.1,
+                 scale=0.1,
+                 shear=10,
+                 perspective=0.0,
+                 border=[0, 0],
+                 area_thr=0.25,
+                 fill_value=(114, 114, 114)):
+        super(RandomPerspective, self).__init__()
+        self.degree = degree
+        self.translate = translate
+        self.scale = scale
+        self.shear = shear
+        self.perspective = perspective
+        self.border = border
+        self.area_thr = area_thr
+        self.fill_value = fill_value
+
+    def apply(self, sample, context=None):
+        im = sample['image']
+        height = im.shape[0] + self.border[0] * 2
+        width = im.shape[1] + self.border[1] * 2
+
+        # center
+        C = np.eye(3)
+        C[0, 2] = -im.shape[1] / 2
+        C[1, 2] = -im.shape[0] / 2
+
+        # perspective
+        P = np.eye(3)
+        P[2, 0] = random.uniform(-self.perspective, self.perspective)
+        P[2, 1] = random.uniform(-self.perspective, self.perspective)
+
+        # Rotation and scale
+        R = np.eye(3)
+        a = random.uniform(-self.degree, self.degree)
+        s = random.uniform(1 - self.scale, 1 + self.scale)
+        R[:2] = cv2.getRotationMatrix2D(angle=a, center=(0, 0), scale=s)
+
+        # Shear
+        S = np.eye(3)
+        # shear x (deg)
+        S[0, 1] = math.tan(
+            random.uniform(-self.shear, self.shear) * math.pi / 180)
+        # shear y (deg)
+        S[1, 0] = math.tan(
+            random.uniform(-self.shear, self.shear) * math.pi / 180)
+
+        # Translation
+        T = np.eye(3)
+        T[0, 2] = random.uniform(0.5 - self.translate,
+                                 0.5 + self.translate) * width
+        T[1, 2] = random.uniform(0.5 - self.translate,
+                                 0.5 + self.translate) * height
+
+        # matmul
+        # M = T @ S @ R @ P @ C
+        M = np.eye(3)
+        for cM in [T, S, R, P, C]:
+            M = np.matmul(M, cM)
+
+        if (self.border[0] != 0) or (self.border[1] != 0) or (
+                M != np.eye(3)).any():
+            if self.perspective:
+                im = cv2.warpPerspective(
+                    im, M, dsize=(width, height), borderValue=self.fill_value)
+            else:
+                im = cv2.warpAffine(
+                    im,
+                    M[:2],
+                    dsize=(width, height),
+                    borderValue=self.fill_value)
+
+        sample['image'] = im
+        if sample['gt_bbox'].shape[0] > 0:
+            sample = transform_bbox(
+                sample,
+                M,
+                width,
+                height,
+                area_thr=self.area_thr,
+                perspective=self.perspective)
+
+        return sample
+
+
+@register_op
+class Mosaic(BaseOperator):
+    """
+    Mosaic Data Augmentation, refer to https://github.com/ultralytics/yolov5/blob/develop/utils/datasets.py
+
+    """
+
+    def __init__(self,
+                 target_size,
+                 mosaic_border=None,
+                 fill_value=(114, 114, 114)):
+        super(Mosaic, self).__init__()
+        self.target_size = target_size
+        if mosaic_border is None:
+            mosaic_border = (-target_size // 2, -target_size // 2)
+        self.mosaic_border = mosaic_border
+        self.fill_value = fill_value
+
+    def __call__(self, sample, context=None):
+        if not isinstance(sample, Sequence):
+            return sample
+
+        s = self.target_size
+        yc, xc = [
+            int(random.uniform(-x, 2 * s + x)) for x in self.mosaic_border
+        ]
+        boxes = [x['gt_bbox'] for x in sample]
+        labels = [x['gt_class'] for x in sample]
+        for i in range(len(sample)):
+            im = sample[i]['image']
+            h, w, c = im.shape
+
+            if i == 0:  # top left
+                image = np.ones(
+                    (s * 2, s * 2, c), dtype=np.uint8) * self.fill_value
+                # xmin, ymin, xmax, ymax (dst image)
+                x1a, y1a, x2a, y2a = max(xc - w, 0), max(yc - h, 0), xc, yc
+                # xmin, ymin, xmax, ymax (src image)
+                x1b, y1b, x2b, y2b = w - (x2a - x1a), h - (y2a - y1a), w, h
+            elif i == 1:  # top right
+                x1a, y1a, x2a, y2a = xc, max(yc - h, 0), min(xc + w, s * 2), yc
+                x1b, y1b, x2b, y2b = 0, h - (y2a - y1a), min(w, x2a - x1a), h
+            elif i == 2:  # bottom left
+                x1a, y1a, x2a, y2a = max(xc - w, 0), yc, xc, min(s * 2, yc + h)
+                x1b, y1b, x2b, y2b = w - (x2a - x1a), 0, max(xc, w), min(
+                    y2a - y1a, h)
+            elif i == 3:  # bottom right
+                x1a, y1a, x2a, y2a = xc, yc, min(xc + w,
+                                                 s * 2), min(s * 2, yc + h)
+                x1b, y1b, x2b, y2b = 0, 0, min(w, x2a - x1a), min(y2a - y1a, h)
+
+            image[y1a:y2a, x1a:x2a] = im[y1b:y2b, x1b:x2b]
+            padw = x1a - x1b
+            padh = y1a - y1b
+            boxes[i] = boxes[i] + (padw, padh, padw, padh)
+
+        boxes = np.concatenate(boxes, axis=0)
+        boxes = np.clip(boxes, 0, s * 2)
+        labels = np.concatenate(labels, axis=0)
+        if 'is_crowd' in sample[0]:
+            is_crowd = np.concatenate([x['is_crowd'] for x in sample], axis=0)
+        if 'difficult' in sample[0]:
+            difficult = np.concatenate([x['difficult'] for x in sample], axis=0)
+        sample = sample[0]
+        sample['image'] = image.astype(np.uint8)
+        sample['gt_bbox'] = boxes
+        sample['gt_class'] = labels
+        if 'is_crowd' in sample:
+            sample['is_crowd'] = is_crowd
+        if 'difficult' in sample:
+            sample['difficult'] = difficult
+
         return sample

@@ -17,9 +17,9 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+import copy
 import time
-import random
-import datetime
+
 import numpy as np
 from PIL import Image
 
@@ -198,7 +198,7 @@ class Trainer(object):
         elif self.cfg.metric == 'ReID':
             self._metrics = [JDEReIDMetric(), ]
         else:
-            logger.warn("Metric not support for metric type {}".format(
+            logger.warning("Metric not support for metric type {}".format(
                 self.cfg.metric))
             self._metrics = []
 
@@ -254,8 +254,7 @@ class Trainer(object):
         model = self.model
         if self.cfg.get('fleet', False):
             model = fleet.distributed_model(model)
-            self.optimizer = fleet.distributed_optimizer(
-                self.optimizer).user_defined_optimizer
+            self.optimizer = fleet.distributed_optimizer(self.optimizer)
         elif self._nranks > 1:
             find_unused_parameters = self.cfg[
                 'find_unused_parameters'] if 'find_unused_parameters' in self.cfg else False
@@ -326,7 +325,7 @@ class Trainer(object):
 
             # apply ema weight on model
             if self.use_ema:
-                weight = self.model.state_dict()
+                weight = copy.deepcopy(self.model.state_dict())
                 self.model.set_dict(self.ema.apply())
 
             self._compose_callback.on_epoch_end(self.status)
@@ -433,7 +432,6 @@ class Trainer(object):
                         if 'segm' in batch_res else None
                 keypoint_res = batch_res['keypoint'][start:end] \
                         if 'keypoint' in batch_res else None
-
                 image = visualize_results(
                     image, bbox_res, mask_res, segm_res, keypoint_res,
                     int(im_id), catid2name, draw_threshold)

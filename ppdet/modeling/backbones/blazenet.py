@@ -20,13 +20,15 @@ import paddle
 import paddle.nn as nn
 import paddle.nn.functional as F
 from paddle import ParamAttr
-from paddle.regularizer import L2Decay
 from paddle.nn.initializer import KaimingNormal
 from ppdet.core.workspace import register, serializable
-from numbers import Integral
 from ..shape_spec import ShapeSpec
 
 __all__ = ['BlazeNet']
+
+
+def hard_swish(x):
+    return x * F.relu6(x + 3) / 6.
 
 
 class ConvBNLayer(nn.Layer):
@@ -80,6 +82,10 @@ class ConvBNLayer(nn.Layer):
             x = F.relu(x)
         elif self.act == "relu6":
             x = F.relu6(x)
+        elif self.act == 'leaky':
+            x = F.leaky_relu(x)
+        elif self.act == 'hard_swish':
+            x = hard_swish(x)
         return x
 
 
@@ -91,6 +97,7 @@ class BlazeBlock(nn.Layer):
                  double_channels=None,
                  stride=1,
                  use_5x5kernel=True,
+                 act='relu',
                  name=None):
         super(BlazeBlock, self).__init__()
         assert stride in [1, 2]
@@ -132,14 +139,14 @@ class BlazeBlock(nn.Layer):
                         padding=1,
                         num_groups=out_channels1,
                         name=name + "1_dw_2")))
-        act = 'relu' if self.use_double_block else None
+        self.act = act if self.use_double_block else None
         self.conv_pw = ConvBNLayer(
             in_channels=out_channels1,
             out_channels=out_channels2,
             kernel_size=1,
             stride=1,
             padding=0,
-            act=act,
+            act=self.act,
             name=name + "1_sep")
         if self.use_double_block:
             self.conv_dw2 = []
@@ -237,7 +244,8 @@ class BlazeNet(nn.Layer):
             blaze_filters=[[24, 24], [24, 24], [24, 48, 2], [48, 48], [48, 48]],
             double_blaze_filters=[[48, 24, 96, 2], [96, 24, 96], [96, 24, 96],
                                   [96, 24, 96, 2], [96, 24, 96], [96, 24, 96]],
-            use_5x5kernel=True):
+            use_5x5kernel=True,
+            act=None):
         super(BlazeNet, self).__init__()
         conv1_num_filters = blaze_filters[0][0]
         self.conv1 = ConvBNLayer(
@@ -262,6 +270,7 @@ class BlazeNet(nn.Layer):
                             v[0],
                             v[1],
                             use_5x5kernel=use_5x5kernel,
+                            act=act,
                             name='blaze_{}'.format(k))))
             elif len(v) == 3:
                 self.blaze_block.append(
@@ -273,6 +282,7 @@ class BlazeNet(nn.Layer):
                             v[1],
                             stride=v[2],
                             use_5x5kernel=use_5x5kernel,
+                            act=act,
                             name='blaze_{}'.format(k))))
             in_channels = v[1]
 
@@ -289,6 +299,7 @@ class BlazeNet(nn.Layer):
                             v[1],
                             double_channels=v[2],
                             use_5x5kernel=use_5x5kernel,
+                            act=act,
                             name='double_blaze_{}'.format(k))))
             elif len(v) == 4:
                 self.blaze_block.append(
@@ -301,6 +312,7 @@ class BlazeNet(nn.Layer):
                             double_channels=v[2],
                             stride=v[3],
                             use_5x5kernel=use_5x5kernel,
+                            act=act,
                             name='double_blaze_{}'.format(k))))
             in_channels = v[2]
             self._out_channels.append(in_channels)

@@ -20,8 +20,7 @@ from __future__ import unicode_literals
 import errno
 import os
 import time
-import re
-import numpy as np
+
 import paddle
 import paddle.nn as nn
 from .download import get_weights_path
@@ -162,7 +161,7 @@ def load_pretrain_weight(model, pretrain_weight):
     # hack: fit for faster rcnn. Pretrain weights contain prefix of 'backbone'
     # while res5 module is located in bbox_head.head. Replace the prefix of
     # res5 with 'bbox_head.head' to load pretrain weights correctly.
-    for k in param_state_dict.keys():
+    for k in list(param_state_dict.keys()):
         if 'backbone.res5' in k:
             new_k = k.replace('backbone', 'bbox_head.head')
             if new_k in model_dict.keys():

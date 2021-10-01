@@ -31,14 +31,27 @@ import math
 from .operators import BaseOperator, register_op
 from .batch_operators import Gt2TTFTarget
 from ppdet.modeling.bbox_utils import bbox_iou_np_expand
-from ppdet.core.workspace import serializable
 from ppdet.utils.logger import setup_logger
 logger = setup_logger(__name__)
 
 __all__ = [
-    'LetterBoxResize', 'MOTRandomAffine', 'Gt2JDETargetThres',
+    'RGBReverse', 'LetterBoxResize', 'MOTRandomAffine', 'Gt2JDETargetThres',
     'Gt2JDETargetMax', 'Gt2FairMOTTarget'
 ]
+
+
+@register_op
+class RGBReverse(BaseOperator):
+    """RGB to BGR, or BGR to RGB, sensitive to MOTRandomAffine
+    """
+
+    def __init__(self):
+        super(RGBReverse, self).__init__()
+
+    def apply(self, sample, context=None):
+        im = sample['image']
+        sample['image'] = np.ascontiguousarray(im[:, :, ::-1])
+        return sample
 
 
 @register_op
@@ -95,7 +108,8 @@ class LetterBoxResize(BaseOperator):
         if not isinstance(im, np.ndarray):
             raise TypeError("{}: image type is not numpy.".format(self))
         if len(im.shape) != 3:
-            raise ImageError('{}: image is not 3-dimensional.'.format(self))
+            from PIL import UnidentifiedImageError
+            raise UnidentifiedImageError('{}: image is not 3-dimensional.'.format(self))
 
         # apply image
         height, width = self.target_size
@@ -122,7 +136,7 @@ class MOTRandomAffine(BaseOperator):
 
     Args:
         degrees (list[2]): the rotate range to apply, transform range is [min, max]
-        translate (list[2]): the translate range to apply, ransform range is [min, max]
+        translate (list[2]): the translate range to apply, transform range is [min, max]
         scale (list[2]): the scale range to apply, transform range is [min, max]
         shear (list[2]): the shear range to apply, transform range is [min, max]
         borderValue (list[3]): value used in case of a constant border when appling
