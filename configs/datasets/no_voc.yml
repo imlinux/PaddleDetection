@@ -11,11 +11,11 @@ TrainDataset:
 
 EvalDataset:
   !VOCDataSet
-    dataset_dir: dataset/roadsign_voc
-    anno_path: valid.txt
+    dataset_dir: dataset/no_voc
+    anno_path: val.txt
     label_list: label_list.txt
     data_fields: ['image', 'gt_bbox', 'gt_class', 'difficult']
 
 TestDataset:
   !ImageFolder
-    anno_path: dataset/roadsign_voc/label_list.txt
+    anno_path: dataset/no_voc/label_list.txt
