@@ -457,7 +457,7 @@ def visualize(image_list, results, labels, output_dir='output/', threshold=0.5):
     for idx, image_file in enumerate(image_list):
         im_bboxes_num = results['boxes_num'][idx]
         im_results = {}
-        if 'boxes' in results:
+        if 'boxes' in results and im_bboxes_num != 0:
             im_results['boxes'] = results['boxes'][start_idx:start_idx +
                                                    im_bboxes_num, :]
         if 'masks' in results:
