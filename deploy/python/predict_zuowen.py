@@ -53,10 +53,11 @@ def split(img):
 
 predict = Predict(model_dir)
 for (account, score, file_path) in image_list("/home/dong/tmp/zuowen/JUYE_F_00007.pdf"):
-    for img in account:
+    for img in score:
         result = predict([img])
         boxes = result["boxes"]
-        print(boxes[boxes[:, 1].argsort()[::-1]][0:2])
+        if len(boxes) > 0:
+            print(boxes[boxes[:, 1].argsort()[::-1]][0:2])
+            print("*"*20)
         cv2.imshow("", img)
         cv2.waitKey(0)
-        print("*"*20)
