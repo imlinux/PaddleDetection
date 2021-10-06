@@ -101,6 +101,14 @@ def annotations_polygon(height, width, points, label, image_num, object_num,
     annotation['area'] = annotation['bbox'][2] * annotation['bbox'][3]
     annotation['category_id'] = label_to_num[label]
     annotation['id'] = object_num + 1
+    annotation['num_keypoints'] = len(points)
+
+    keypoints = []
+    for point in points:
+        keypoints = keypoints + point
+        keypoints = keypoints + [2]
+
+    annotation['keypoints'] = keypoints
     return annotation
 
 
