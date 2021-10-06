@@ -2,15 +2,15 @@ import shutil
 import pathlib
 import os
 
-input_path = "/home/dong/tmp/dataset/voc/zuowen"
-output_path = "/home/dong/tmp/no_train/"
+input_path = "/home/dong/tmp/zuowen_resize/"
+output_path = "/home/dong/tmp/test/"
 
 os.makedirs(output_path, exist_ok=True)
 
-for i in pathlib.Path(input_path).glob("**/*.xml"):
+for i in pathlib.Path(input_path).glob("**/*.json"):
     *_, filename = str(i).split("/")
-    file_path, ext = os.path.splitext(str(i))
-    img_path = file_path + ".jpg"
-    ann_path = file_path + ".xml"
+    filename, ext = os.path.splitext(str(filename))
+    img_path = f'{input_path}/{filename}.jpg'
+    ann_path = f'{input_path}/{filename}.json'
     shutil.copyfile(img_path, output_path + filename + ".jpg")
-    shutil.copyfile(ann_path, output_path + filename + ".xml")
+    shutil.copyfile(ann_path, output_path + filename + ".json")
