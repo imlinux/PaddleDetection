@@ -26,6 +26,8 @@ from paddle.inference import create_predictor
 from utils import argsparser, Timer, get_current_memory_mb
 from benchmark_utils import PaddleInferBenchmark
 from infer import get_test_images, print_arguments
+from preprocess import preprocess, NormalizeImage, Permute
+from keypoint_preprocess import EvalAffine, TopDownEvalAffine
 
 # Global dictionary
 KEYPOINT_SUPPORT_MODELS = {
