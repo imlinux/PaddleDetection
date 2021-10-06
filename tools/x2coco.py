@@ -108,6 +108,9 @@ def annotations_polygon(height, width, points, label, image_num, object_num,
         keypoints = keypoints + point
         keypoints = keypoints + [2]
 
+    for c in range(13):
+        keypoints = keypoints + [0, 0, 0]
+
     annotation['keypoints'] = keypoints
     return annotation
 
