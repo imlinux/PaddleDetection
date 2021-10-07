@@ -10,18 +10,20 @@ from keypoint_predict import KeyPointPredict, split
 from predict import Predict
 from imutils import perspective
 from bson.json_util import loads
+import string
 
 file_infos = [
 
     ("JUYE_F_00007.pdf", "5ea43fc7ebf5f3a540e44f7d"),
-    ("JUYE_F_00008.pdf", "5ea43fc7ebf5f3a540e44f7e")
+    ("JUYE_F_00008.pdf", "5ea43fc7ebf5f3a540e44f7e"),
+    ("JUYE_F_00010.pdf", "5ea43fc7ebf5f3a540e44f7f")
 ]
 
 pipeline = '''
     [
         {
             "$match": {
-                "clazz": "{}",
+                "clazz": "5ea43fc7ebf5f3a540e44f84",
                 "status": {
                     "$in": ["在籍在读", "借读"]
                 }
@@ -54,6 +56,38 @@ pipeline = '''
                 "as": "clazz"
             }
         },
+        
+        {
+            "$unwind": "$clazz"
+        },
+        
+        {
+            "$addFields": {
+                "clazz.teachers": {
+                    "$filter": {
+                        "input": "$clazz.teachers",
+                        "as": "item",
+                        "cond": {
+                            "$eq": ["$$item.subjectId", {"$toObjectId": "5fa8b14de54cbd0a21b61c45"}]
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "$unwind": "$clazz.teachers"
+        },
+        {
+            "$lookup": {
+                "from": "user",
+                "localField": "clazz.teachers.teacherId",
+                "foreignField": "_id",
+                "as": "teacher"
+            }
+        },
+        {
+            "$unwind": "$teacher"
+        },
 
         {
             "$unwind": "$clazz"
@@ -75,7 +109,11 @@ pipeline = '''
                 "clazzNameabbr": "$clazz.nameabbr",
                 "grade": "$clazz.grade",
                 "startyear": "$clazz.startyear",
-                "teacherPhoto": "$teacher.photo"
+                "teacherName": "$teacher.name",
+                "teacherId": "$teacher._id",
+                "teacherPhoto": "$teacher.photo",
+                "no": 1,
+                "account": 1
             }
         }
     ]
@@ -103,6 +141,12 @@ def predict_img(img_list):
     info = []
     c = []
     for img in img_list:
+
+        if img.shape[0] == 0:
+            ret += " "
+            info.append([])
+            continue
+
         result = predict([img])
         boxes = result["boxes"]
 
@@ -160,15 +204,18 @@ def save_pdf(filename, data):
 
 def process_one(pdf_file_path, class_id, topic_id):
     db, fs = open_db()
-    topic_doc = db.teach_topic.findOne({"_id": ObjectId(topic_id)})
+    topic_doc = db.teach_topic.find_one({"_id": ObjectId(topic_id)})
+    teach_topic_name = topic_doc["name"]
+    data = list(db.user.aggregate(loads(pipeline)))
 
-    data = db.user.aggregate(loads(pipeline.format(class_id)))
+    print(pipeline)
 
     with fitz.open(pdf_file_path) as pdf_file:
         for page_num in range(1, len(pdf_file), 2):
 
-            record = data[page_num]
+            record = data[page_num//2]
             page = pdf_file[page_num]
+            print(record["no"], record["account"], record["name"])
             for img in page.getImageList():
                 base_image = pdf_file.extractImage(img[0])
                 image_bytes = base_image["image"]
@@ -196,13 +243,13 @@ def process_one(pdf_file_path, class_id, topic_id):
 
                 query = {
                     "clazz.clazzId": ObjectId(class_id),
-                    "author.userId": record.id,
+                    "author.userId": record["id"],
                     "topicId": ObjectId(topic_id)
                 }
                 if db.clazzcircle.count_documents(query) == 0:
 
-                    student_pdf_filename = f"{topic_doc.name}.pdf"
-                    teacher_pdf_filename = f"{topic_doc.name}[已批改].pdf"
+                    student_pdf_filename = f"{teach_topic_name}.pdf"
+                    teacher_pdf_filename = f"{teach_topic_name}[已批改].pdf"
 
                     db_obj = {}
                     files = [
@@ -211,42 +258,41 @@ def process_one(pdf_file_path, class_id, topic_id):
                             "name": student_pdf_filename,
                         },
                     ]
-                    if not account_str.isspace():
-                        db_obj["scoreInfos"] = {
+                    if not score_str.isspace():
+                        db_obj["scoreInfos"] = [{
                             "_id": ObjectId(),
                             "sendTime": current_time,
                             "score": {
-                                "relevanceAndMaterial": int(relevanceAndMaterial),
-                                "thinkAndFeel": int(thinkAndFeel),
-                                "languageAndExpress": int(languageAndExpress),
-                                "writeAndCount": int(writeAndCount)
+                                "relevanceAndMaterial": int(relevanceAndMaterial) if not relevanceAndMaterial.isspace() else 0,
+                                "thinkAndFeel": int(thinkAndFeel) if not thinkAndFeel.isspace() else 0,
+                                "languageAndExpress": int(languageAndExpress) if not languageAndExpress.isspace() else 0,
+                                "writeAndCount": int(writeAndCount) if not writeAndCount.isspace() else 0
                             },
                             "author": {
-                                "userId": record.teacherId,
-                                "userName": record.teacherName,
-                                "userPhoto": str(record.teacherPhoto)
+                                "userId": record["teacherId"],
+                                "userName": record["teacherName"],
+                                "userPhoto": str(record["teacherPhoto"])
                             },
                             "self": False
-                        }
+                        }]
                         files += [
                             {
-                                "fileId": save_pdf(teacher_pdf_filename, teacher_pdf(pdf_file, page_num)),
+                                "fileId": save_pdf(teacher_pdf_filename, student_pdf(pdf_file, page_num)),
                                 "name": teacher_pdf_filename,
                             },
                         ]
 
-
-                    db_obj = {
+                    db_obj.update({
                         "clazz": {
                             "clazzId": ObjectId(class_id),
-                            "clazzName": record.clazzName
+                            "clazzName": record["clazzName"]
                         },
                         "contentType": "COMPOSITION",
                         "topicId": ObjectId(topic_id),
                         "author": [{
-                            "userId": record.id,
-                            "userName": record.name,
-                            "userPhoto": record.photo
+                            "userId": record["id"],
+                            "userName": record["name"],
+                            "userPhoto": record["photo"]
                         }],
                         "files": files,
                         "create_time": current_time,
@@ -257,12 +303,12 @@ def process_one(pdf_file_path, class_id, topic_id):
                         "type": "OFFICE",
                         "cnn_info": {
                             "account": account_str,
-                            "account_info": account_info,
+                            "account_info": str(account_info),
                             "score": score_str,
-                            "score_info": score_info
+                            "score_info": str(score_info)
                         }
-                    }
+                    })
                     db.clazzcircle.insert_one(db_obj)
 
 
-process_one("/home/dong/tmp/zuowen/JUYE_F_00007.pdf", "", "")
+process_one("/home/dong/tmp/zuowen/JUYE_F_00015.pdf", "5ea43fc7ebf5f3a540e44f84", "60534fd6c87b3f72ac4ea853")
