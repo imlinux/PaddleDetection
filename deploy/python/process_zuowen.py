@@ -19,105 +19,106 @@ file_infos = [
     ("JUYE_F_00010.pdf", "5ea43fc7ebf5f3a540e44f7f")
 ]
 
-pipeline = '''
-    [
-        {
-            "$match": {
-                "clazz": "5ea43fc7ebf5f3a540e44f84",
-                "status": {
-                    "$in": ["在籍在读", "借读"]
-                }
-            }
-        },
-        {
-            "$addFields": {
-                "sortNo": {
-                    "$toInt": {
-                        "$cond": {
-                            "if": {
-                                "$eq": ["", { "$ifNull": ["$no", ""] }]
-                            },
-                            "then": "1000000",
-                            "else": "$no"
-                        }
-                    }
-                },
-                "clazzId": {
-                    "$toObjectId": "$clazz"
-                }
-            }
-        },
-
-        {
-            "$lookup": {
-                "from": "clazz",
-                "foreignField": "_id",
-                "localField": "clazzId",
-                "as": "clazz"
-            }
-        },
-        
-        {
-            "$unwind": "$clazz"
-        },
-        
-        {
-            "$addFields": {
-                "clazz.teachers": {
-                    "$filter": {
-                        "input": "$clazz.teachers",
-                        "as": "item",
-                        "cond": {
-                            "$eq": ["$$item.subjectId", {"$toObjectId": "5fa8b14de54cbd0a21b61c45"}]
-                        }
+def pipeline(clazzId):
+    return  '''
+        [
+            {
+                "$match": {
+                    "clazz": ''' + '"' + clazzId + '",' + '''
+                    "status": {
+                        "$in": ["在籍在读", "借读"]
                     }
                 }
+            },
+            {
+                "$addFields": {
+                    "sortNo": {
+                        "$toInt": {
+                            "$cond": {
+                                "if": {
+                                    "$eq": ["", { "$ifNull": ["$no", ""] }]
+                                },
+                                "then": "1000000",
+                                "else": "$no"
+                            }
+                        }
+                    },
+                    "clazzId": {
+                        "$toObjectId": "$clazz"
+                    }
+                }
+            },
+    
+            {
+                "$lookup": {
+                    "from": "clazz",
+                    "foreignField": "_id",
+                    "localField": "clazzId",
+                    "as": "clazz"
+                }
+            },
+            
+            {
+                "$unwind": "$clazz"
+            },
+            
+            {
+                "$addFields": {
+                    "clazz.teachers": {
+                        "$filter": {
+                            "input": "$clazz.teachers",
+                            "as": "item",
+                            "cond": {
+                                "$eq": ["$$item.subjectId", {"$toObjectId": "5fa8b14de54cbd0a21b61c45"}]
+                            }
+                        }
+                    }
+                }
+            },
+            {
+                "$unwind": "$clazz.teachers"
+            },
+            {
+                "$lookup": {
+                    "from": "user",
+                    "localField": "clazz.teachers.teacherId",
+                    "foreignField": "_id",
+                    "as": "teacher"
+                }
+            },
+            {
+                "$unwind": "$teacher"
+            },
+    
+            {
+                "$unwind": "$clazz"
+            },
+            {
+                "$sort": {
+                    "sortNo": 1
+                }
+            },
+            {
+                "$project": {
+                    "id": "$_id",
+                    "name": 1,
+                    "photo": 1,
+                    "school": "$clazz.school",
+                    "schoolabbr": "$clazz.schoolabbr",
+                    "clazzId": "$clazz._id",
+                    "clazzName": "$clazz.name",
+                    "clazzNameabbr": "$clazz.nameabbr",
+                    "grade": "$clazz.grade",
+                    "startyear": "$clazz.startyear",
+                    "teacherName": "$teacher.name",
+                    "teacherId": "$teacher._id",
+                    "teacherPhoto": "$teacher.photo",
+                    "no": 1,
+                    "account": 1
+                }
             }
-        },
-        {
-            "$unwind": "$clazz.teachers"
-        },
-        {
-            "$lookup": {
-                "from": "user",
-                "localField": "clazz.teachers.teacherId",
-                "foreignField": "_id",
-                "as": "teacher"
-            }
-        },
-        {
-            "$unwind": "$teacher"
-        },
-
-        {
-            "$unwind": "$clazz"
-        },
-        {
-            "$sort": {
-                "sortNo": 1
-            }
-        },
-        {
-            "$project": {
-                "id": "$_id",
-                "name": 1,
-                "photo": 1,
-                "school": "$clazz.school",
-                "schoolabbr": "$clazz.schoolabbr",
-                "clazzId": "$clazz._id",
-                "clazzName": "$clazz.name",
-                "clazzNameabbr": "$clazz.nameabbr",
-                "grade": "$clazz.grade",
-                "startyear": "$clazz.startyear",
-                "teacherName": "$teacher.name",
-                "teacherId": "$teacher._id",
-                "teacherPhoto": "$teacher.photo",
-                "no": 1,
-                "account": 1
-            }
-        }
-    ]
-'''
+        ]
+    '''
 
 
 key_point_model_dir = "/home/dong/dev/PaddleDetection/inference_model/higherhrnet_hrnet_w32_512_lo"
@@ -152,7 +153,7 @@ def predict_img(img_list):
 
         if len(boxes) > 0:
             r = boxes[boxes[:, 1].argsort()[::-1]]
-            info.append(r)
+            info.append(r.tolist())
             c.append(r[0][1])
             if r[0][1] >= 0.6 :
                 ret += str(int(r[0][0]))
@@ -202,13 +203,13 @@ def save_pdf(filename, data):
     else:
         return f._id
 
+
 def process_one(pdf_file_path, class_id, topic_id):
     db, fs = open_db()
     topic_doc = db.teach_topic.find_one({"_id": ObjectId(topic_id)})
     teach_topic_name = topic_doc["name"]
-    data = list(db.user.aggregate(loads(pipeline)))
-
-    print(pipeline)
+    print(pipeline(class_id))
+    data = list(db.user.aggregate(loads(pipeline(class_id))))
 
     with fitz.open(pdf_file_path) as pdf_file:
         for page_num in range(1, len(pdf_file), 2):
@@ -303,12 +304,12 @@ def process_one(pdf_file_path, class_id, topic_id):
                         "type": "OFFICE",
                         "cnn_info": {
                             "account": account_str,
-                            "account_info": str(account_info),
+                            "account_info": account_info,
                             "score": score_str,
-                            "score_info": str(score_info)
+                            "score_info": score_info
                         }
                     })
                     db.clazzcircle.insert_one(db_obj)
 
 
-process_one("/home/dong/tmp/zuowen/JUYE_F_00015.pdf", "5ea43fc7ebf5f3a540e44f84", "60534fd6c87b3f72ac4ea853")
+process_one("/home/dong/tmp/zuowen/JUYE_F_00017.pdf", "5ea43fc7ebf5f3a540e44f86", "60534fd6c87b3f72ac4ea853")
