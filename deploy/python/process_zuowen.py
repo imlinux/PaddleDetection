@@ -12,12 +12,6 @@ from imutils import perspective
 from bson.json_util import loads
 import string
 
-file_infos = [
-
-    ("JUYE_F_00007.pdf", "5ea43fc7ebf5f3a540e44f7d"),
-    ("JUYE_F_00008.pdf", "5ea43fc7ebf5f3a540e44f7e"),
-    ("JUYE_F_00010.pdf", "5ea43fc7ebf5f3a540e44f7f")
-]
 
 def pipeline(clazzId):
     return  '''
@@ -214,7 +208,7 @@ def student_pdf(pdf_file, page_num):
     return pdf_doc.tobytes()
 
 
-def teacher_pdf(pdf_file, page_num):
+def raw_pdf(pdf_file, page_num):
     pdf_doc = fitz.Document()
     pdf_doc.insert_pdf(pdf_file, from_page=page_num - 1, to_page=page_num)
     return pdf_doc.tobytes()
@@ -305,6 +299,7 @@ def process_one(pdf_file_path, class_id, topic_id):
                         ]
 
                     db_obj.update({
+                        "rawPdf": save_pdf(student_pdf_filename, raw_pdf(pdf_file, page_num)),
                         "clazz": {
                             "clazzId": ObjectId(class_id),
                             "clazzName": record["clazzName"]
@@ -333,4 +328,27 @@ def process_one(pdf_file_path, class_id, topic_id):
                     db.clazzcircle.insert_one(db_obj)
 
 
-process_one("/home/dong/tmp/zuowen/JUYE_F_00017.pdf", "5ea43fc7ebf5f3a540e44f86", "60534fd6c87b3f72ac4ea853")
+def main():
+
+    file_infos = [
+
+        ("/home/dong/tmp/zuowen/JUYE_F_00015.pdf", "180035", "60534fd6c87b3f72ac4ea853", False),
+        ("/home/dong/tmp/zuowen/JUYE_F_00016.pdf", "180060", "60534fd6c87b3f72ac4ea853", False),
+        ("/home/dong/tmp/zuowen/JUYE_F_00017.pdf", "180091", "60534fd6c87b3f72ac4ea853", True),
+        ("/home/dong/tmp/zuowen/JUYE_F_00018.pdf", "180175", "60534fd6c87b3f72ac4ea853", False),
+        ("/home/dong/tmp/zuowen/JUYE_F_00019.pdf", "180186", "60534fd6c87b3f72ac4ea853", False),
+        ("/home/dong/tmp/zuowen/JUYE_F_00020.pdf", "180247", "60534fd6c87b3f72ac4ea853", False),
+        ("/home/dong/tmp/zuowen/JUYE_F_00021.pdf", "180303", "60534fd6c87b3f72ac4ea853", False)
+    ]
+
+    db, _ = open_db()
+
+    for file, student_account, topicId, process in file_infos:
+        if process: continue
+        user_doc = db.user.find_one({"account": student_account})
+
+        process_one(file, user_doc["clazz"], topicId)
+
+
+if __name__ == "__main__":
+    main()
