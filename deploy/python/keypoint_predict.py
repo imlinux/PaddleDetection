@@ -22,8 +22,8 @@ class KeyPointPredict:
 
 def split(img):
 
-    row = 80
-    col = 1507
+    row = 85
+    col = 1510
     w = 100
     h = 76
     account = []
@@ -31,8 +31,8 @@ def split(img):
     for i in range(6):
         account.append(img[row: row + h, col + i * w: col + (i + 1) * w])
 
-    row = 2498
-    col = 0
+    row = 2510
+    col = 1
     w = 184
     h = 122
     score = []
