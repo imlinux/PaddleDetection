@@ -167,6 +167,30 @@ def predict_img(img_list):
     return ret, info
 
 
+def remove_red(image):
+
+    blue_c, green_c, red_c = cv2.split(image)
+
+    row_range = image.shape[0] // 2
+
+    red_part = red_c[-row_range:]
+
+    thresh, ret = cv2.threshold(red_part, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    filter_condition = int(thresh * 0.95)
+    _, red_thresh = cv2.threshold(red_part, filter_condition, 255, cv2.THRESH_BINARY)
+
+    red_c[-row_range:] = red_thresh
+    blue_c[-row_range:] = red_thresh
+    green_c[-row_range:] = red_thresh
+
+    result_blue = np.expand_dims(blue_c, axis=2)
+    result_greep = np.expand_dims(green_c, axis=2)
+    result_red = np.expand_dims(red_c, axis=2)
+    result_img = np.concatenate((result_blue, result_greep, result_red), axis=-1)
+
+    return result_img
+
+
 def student_pdf(pdf_file, page_num):
 
     img_xref = pdf_file.get_page_images(page_num)
@@ -174,7 +198,8 @@ def student_pdf(pdf_file, page_num):
     image_bytes = base_image["image"]
     image_ext = base_image["ext"]
     img = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), -1)
-    img[-250:, 100:2000] = [255, 255, 255]
+    img = remove_red(img)
+
     img_bytes = cv2.imencode(".jpg", img)[1].tobytes()
 
     rect = pdf_file[page_num].bound()
@@ -194,14 +219,10 @@ def teacher_pdf(pdf_file, page_num):
     pdf_doc.insert_pdf(pdf_file, from_page=page_num - 1, to_page=page_num)
     return pdf_doc.tobytes()
 
+
 def save_pdf(filename, data):
     db, fs = open_db()
-
-    f = fs.find_one({"filename": filename})
-    if f is None:
-        return fs.put(data, filename = filename)
-    else:
-        return f._id
+    return fs.put(data, filename=filename)
 
 
 def process_one(pdf_file_path, class_id, topic_id):
