@@ -358,7 +358,7 @@ def main():
         ("/home/dong/tmp/zuowen/JUYE_F_00025.pdf", "170238", "60534fd6c87b3f72ac4ea8cc", True),
         ("/home/dong/tmp/zuowen/JUYE_F_00026.pdf", "170283", "60534fd6c87b3f72ac4ea8cc", True),
         ("/home/dong/tmp/zuowen/JUYE_F_00027.pdf", "170316", "60534fd6c87b3f72ac4ea8cc", True),
-        ("/home/dong/tmp/zuowen/JUYE_F_00028.pdf", "190313", "60534fd6c87b3f72ac4ea7e2", False),
+        ("/home/dong/tmp/zuowen/JUYE_F_00028.pdf", "190313", "60534fd6c87b3f72ac4ea7e2", True),
         ("/home/dong/tmp/zuowen/JUYE_F_00029.pdf", "190362", "60534fd6c87b3f72ac4ea7e2", True),
         ("/home/dong/tmp/zuowen/JUYE_F_00030.pdf", "190401", "60534fd6c87b3f72ac4ea7e2", True),
         ("/home/dong/tmp/zuowen/JUYE_F_00031.pdf", "190454", "60534fd6c87b3f72ac4ea7e2", True),
@@ -367,14 +367,14 @@ def main():
         ("/home/dong/tmp/zuowen/JUYE_F_00034.pdf", "180336", "60534fd6c87b3f72ac4ea853", True),
         ("/home/dong/tmp/zuowen/JUYE_F_00035.pdf", "180385", "60534fd6c87b3f72ac4ea853", True),
         ("/home/dong/tmp/zuowen/JUYE_F_00036.pdf", "180427", "60534fd6c87b3f72ac4ea853", True),
-        ("/home/dong/tmp/zuowen/JUYE_F_00037.pdf", "180428", "60534fd6c87b3f72ac4ea853", True),
+        ("/home/dong/tmp/zuowen/JUYE_F_00037.pdf", "180468", "60534fd6c87b3f72ac4ea853", False),
         ("/home/dong/tmp/zuowen/JUYE_F_00038.pdf", "180511", "60534fd6c87b3f72ac4ea853", True),
         ("/home/dong/tmp/zuowen/JUYE_F_00039.pdf", "170412", "60534fd6c87b3f72ac4ea8cc", True), # 乱序
         ("/home/dong/tmp/zuowen/JUYE_F_00040.pdf", "170492", "60534fd6c87b3f72ac4ea8cc", True),
         ("/home/dong/tmp/zuowen/JUYE_F_00041.pdf", "170548", "60534fd6c87b3f72ac4ea8cc", True),
         ("/home/dong/tmp/zuowen/JUYE_F_00042.pdf", "170630", "60534fd6c87b3f72ac4ea8cc", True),
         ("/home/dong/tmp/zuowen/JUYE_F_00043.pdf", "170648", "60534fd6c87b3f72ac4ea8cc", True),
-        ("/home/dong/tmp/zuowen/JUYE_F_00045.pdf", "170199", "60534fd6c87b3f72ac4ea8cc", True),
+        ("/home/dong/tmp/zuowen/JUYE_F_00045.pdf", "170199", "60534fd6c87b3f72ac4ea8cc", False),
 
         ("/home/dong/tmp/tmp.pdf", "180427", "60534fd6c87b3f72ac4ea853", True),
     ]
