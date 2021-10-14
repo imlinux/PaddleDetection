@@ -43,6 +43,22 @@ def split(img):
     return account, score
 
 
+def split_row(img):
+
+    row = 85
+    col = 1510
+    w = 100
+    h = 76
+    account = [img[row: row + h, col + 0 * w: col + (5 + 1) * w]]
+
+    row = 2510
+    col = 1
+    w = 184
+    h = 122
+    score = [img[row: row + h, col + 0 * w: col + (7 + 1) * w]]
+
+    return account, score
+
 def main():
     model_dir = "/home/dong/dev/PaddleDetection/inference_model/higherhrnet_hrnet_w32_512_lo"
     img_path = "/home/dong/tmp/zuowen/img/0/JUYE_F_00015.pdf-51.jpg"
