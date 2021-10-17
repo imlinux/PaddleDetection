@@ -3,6 +3,7 @@ import cv2
 import os
 from predict import Predict
 
+
 def xml(file_name, file_path, width, height, depth, obj_name, xmin, ymin, xmax, ymax):
 
     return f"""
@@ -40,10 +41,13 @@ predict = Predict(model_dir)
 
 
 def main():
-    file_path = "/home/dong/tmp/student_account"
-    for f in pathlib.Path(file_path).glob("**/*account*.jpg"):
+    file_path = "/home/dong/tmp/no"
+    for f in pathlib.Path(file_path).glob("**/*.jpg"):
         *_, filename = str(f).split("/")
         filename, ext = os.path.splitext(filename)
+        xml_file_path = file_path + "/" + filename + ".xml"
+
+        if os.path.exists(xml_file_path): continue
 
         img = cv2.imread(str(f))
 
@@ -55,10 +59,11 @@ def main():
             clsid, bbox, score = int(dt[0]), dt[2:], dt[1]
             xmin, ymin, xmax, ymax = bbox
 
-            xml_str = xml(filename + ext, f, img.shape[1], img.shape[0], len(img.shape), str(clsid), xmin, ymin, xmax, ymax)
-            with open(file_path + "/" + filename + ".xml", "w") as xml_file:
-                print(xml_str, file=xml_file)
-            print(f'{f=} {clsid=}')
+            if score >= 0.6:
+                xml_str = xml(filename + ext, f, img.shape[1], img.shape[0], len(img.shape), str(clsid), xmin, ymin, xmax, ymax)
+                with open(xml_file_path, "w") as xml_file:
+                    print(xml_str, file=xml_file)
+            print(f'{f=} {clsid=} {score=}')
 
 
 if __name__ == '__main__':
