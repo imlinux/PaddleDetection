@@ -18,7 +18,7 @@ class Predict:
             trt_max_shape=1280,
             trt_opt_shape=640,
             trt_calib_mode=False,
-            cpu_threads=1,
+            cpu_threads=3,
             enable_mkldnn=False)
 
     def __call__(self, *args, **kwargs):

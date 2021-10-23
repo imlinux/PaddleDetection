@@ -30,6 +30,7 @@ def split(img):
 
     for i in range(6):
         account.append(img[row: row + h, col + i * w: col + (i + 1) * w])
+    all_account = img[row: row + h, col: col + 6 * w]
 
     row = 2510
     col = 1
@@ -39,8 +40,9 @@ def split(img):
 
     for i in range(8):
         score.append(img[row: row + h, col + i * w: col + (i + 1) * w])
+    all_score = img[row: row + h, col: col + 8 * w]
 
-    return account, score
+    return account, score, all_account, all_score
 
 
 def split_row(img):
@@ -87,17 +89,19 @@ def main1():
         pts = np.array([skeletons[0][0][0: 2], skeletons[0][1][0: 2], skeletons[0][2][0: 2], skeletons[0][3][0: 2]])
         img_result = perspective.four_point_transform(cv2.imread(str(img_path)), pts)
 
-        account, score = split(img_result)
+        account, score, all_account, all_score = split(img_result)
+
         *_, filename = str(img_path).split("/")
 
-        for idx, a in enumerate(account):
-            cv2.imwrite(f"/home/dong/tmp/tmp2/{filename}-account{idx}.jpg", a)
-            pass
+        # for idx, a in enumerate(account):
+        #     cv2.imwrite(f"/home/dong/tmp/tmp2/{filename}-account{idx}.jpg", a)
+        #     pass
+        #
+        # for idx, s in enumerate(score):
+        #     cv2.imwrite(f"/home/dong/tmp/tmp2/{filename}-score{idx}.jpg", s)
 
-        for idx, s in enumerate(score):
-            cv2.imwrite(f"/home/dong/tmp/tmp2/{filename}-score{idx}.jpg", s)
-
-        cv2.imwrite(f"/home/dong/tmp/tmp2/{filename}", img_result)
+        cv2.imwrite(f"/home/dong/tmp/tmp2/all_account_{filename}", all_account)
+        cv2.imwrite(f"/home/dong/tmp/tmp2/all_score_{filename}", all_score)
 
 
 if __name__ == "__main__":
