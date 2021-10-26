@@ -25,7 +25,7 @@ def pipeline(clazz_id):
                     },
                     "name": {
                         "$not": {
-                            "$in": ["李欣澄", "野智美", "周佳礼", "钱雨琪", "张一辰"]
+                            "$in": ["李欣澄", "野智美", "周佳礼", "钱雨琪", "张一辰", "孙笠玮"]
                         }
                     }
                 }
@@ -190,6 +190,28 @@ def remove_red(image):
 
     return result_img
 
+def remove_blue(image):
+
+    blue_c, green_c, red_c = cv2.split(image)
+
+    row_range = image.shape[0] // 2
+
+    blue_part = blue_c[-row_range:]
+
+    thresh, ret = cv2.threshold(blue_part, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    filter_condition = int(thresh * 0.95)
+    _, blue_thresh = cv2.threshold(blue_part, filter_condition, 255, cv2.THRESH_BINARY)
+
+    red_c[-row_range:] = blue_thresh
+    blue_c[-row_range:] = blue_thresh
+    green_c[-row_range:] = blue_thresh
+
+    result_blue = np.expand_dims(blue_c, axis=2)
+    result_greep = np.expand_dims(green_c, axis=2)
+    result_red = np.expand_dims(red_c, axis=2)
+    result_img = np.concatenate((result_blue, result_greep, result_red), axis=-1)
+
+    return result_img
 
 def student_pdf(pdf_file, page_num):
 
@@ -355,8 +377,8 @@ def main():
         ####巨野三年级
         ("/home/dong/Downloads/JUYE_F_00051.pdf", "190045", "60534fd6c87b3f72ac4ea7eb", True),
         ("/home/dong/Downloads/JUYE_F_00052.pdf", "190043", "60534fd6c87b3f72ac4ea7eb", True),
-        #("/home/dong/Downloads/JUYE_F_00053.pdf", "190130", "60534fd6c87b3f72ac4ea7eb", True), # 蓝笔
-        #("/home/dong/Downloads/JUYE_F_00054.pdf", "190138", "60534fd6c87b3f72ac4ea7eb", False), # 乱序
+        ("/home/dong/tmp/zuowen2/JUYE_F_00053.pdf", "190130", "60534fd6c87b3f72ac4ea7eb", True),
+        ("/home/dong/tmp/zuowen2/JUYE_F_00054.pdf", "190159", "60534fd6c87b3f72ac4ea7eb", True),
         ("/home/dong/Downloads/JUYE_F_00055.pdf", "190206", "60534fd6c87b3f72ac4ea7eb", True),
         ("/home/dong/Downloads/JUYE_F_00056.pdf", "190242", "60534fd6c87b3f72ac4ea7eb", True),
         ("/home/dong/Downloads/JUYE_F_00057.pdf", "190306", "60534fd6c87b3f72ac4ea7eb", True),
@@ -402,6 +424,9 @@ def main():
         ("/home/dong/Downloads/JUYE_F_00084.pdf", "170548", "60534fd6c87b3f72ac4ea8d2", True),
         ("/home/dong/Downloads/JUYE_F_00085.pdf", "170630", "60534fd6c87b3f72ac4ea8d2", True),
         ("/home/dong/Downloads/JUYE_F_00086.pdf", "170648", "60534fd6c87b3f72ac4ea8d2", True),
+
+        #### 遗留
+        ("/home/dong/tmp/zuowen2/JUYE_F_00088.pdf", "190161", "60534fd6c87b3f72ac4ea7eb", False),
     ]
 
     db, _ = open_db()
