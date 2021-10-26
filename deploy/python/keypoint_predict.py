@@ -14,7 +14,7 @@ class KeyPointPredict:
             pred_config,
             model_dir,
             use_gpu=False,
-            cpu_threads=1)
+            cpu_threads=3)
 
     def __call__(self, *args, **kwargs):
         return self.detector.predict(*args)
@@ -30,7 +30,13 @@ def split(img):
 
     for i in range(6):
         account.append(img[row: row + h, col + i * w: col + (i + 1) * w])
-    all_account = img[row: row + h, col: col + 6 * w]
+    all_account = img[row: row + h, 0: col + 6 * w]
+
+    # 张江
+    # row = 2470
+    # col = 1
+    # w = 184
+    # h = 140
 
     row = 2510
     col = 1

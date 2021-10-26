@@ -14,14 +14,19 @@ from keypoint_predict import KeyPointPredict, split
 from predict import Predict
 
 
-def pipeline(account):
+def pipeline(clazz_id):
     return  '''
         [
             {
                 "$match": {
-                    "account": ''' + '"' + account + '",' + '''
+                    "clazz": ''' + '"' + clazz_id + '",' + '''
                     "status": {
                         "$in": ["在籍在读", "借读"]
+                    },
+                    "name": {
+                        "$not": {
+                            "$in": ["李欣澄", "野智美", "周佳礼", "钱雨琪", "张一辰"]
+                        }
                     }
                 }
             },
@@ -138,7 +143,7 @@ def predict_img(img_list):
     c = []
     for img in img_list:
 
-        if img.shape[0] == 0:
+        if img.shape[0] == 0 or img.shape[1] == 0 or img.shape[2] == 0:
             ret += " "
             info.append([])
             continue
@@ -220,36 +225,11 @@ def save_file(filename, data):
     return fs.put(data, filename=filename)
 
 
-def save_cnn_info(filename, page, topic_id, account, account_info, account_img, score, score_info, score_img):
-    db, _ = open_db()
-    query = {"filename": filename, "page": page, "topic_id": topic_id}
-
-    doc = db.cnn_info.find_one(query)
-    if doc is None:
-        return db.cnn_info.insert_one({
-            "filename": filename,
-            "page": page,
-            "topic_id": topic_id,
-            "account": account,
-            "account_img": save_file("account_img.jpg", cv2.imencode(".jpg", account_img)[1].tobytes()),
-            "score": score,
-            "score_img": save_file("score_img.jpg", cv2.imencode(".jpg", score_img)[1].tobytes()),
-            "col": "clazzcircle",
-            "account_info": account_info[:5],
-            "score_info": score_info[:5],
-        }).inserted_id
-    return doc["_id"]
-
-
-def update_cnn_info(id, reference_id):
-    db, _ = open_db()
-    db.cnn_info.update_one({"_id": id}, {"$set": {"reference_id": reference_id}})
-
-
-def process_one(pdf_file_path, topic_id):
+def process_one(pdf_file_path, clazz_id, topic_id):
     db, fs = open_db()
     topic_doc = db.teach_topic.find_one({"_id": ObjectId(topic_id)})
     teach_topic_name = topic_doc["name"]
+    data = list(db.user.aggregate(loads(pipeline(clazz_id))))
 
     with fitz.open(pdf_file_path) as pdf_file:
         for page_num in range(1, len(pdf_file), 2):
@@ -268,10 +248,17 @@ def process_one(pdf_file_path, topic_id):
                 img_result = perspective.four_point_transform(cv2.imdecode(np.frombuffer(image_bytes, np.uint8), -1), pts)
                 account, score, all_account, all_score = split(img_result)
 
+                for idx, a in enumerate(account):
+                    cv2.imwrite(f"/home/dong/tmp/tmp2/{page_num}-a-{idx}.jpg", a)
+
+                for idx, s in enumerate(score):
+                    cv2.imwrite(f"/home/dong/tmp/tmp2/{page_num}-s-{idx}.jpg", s)
+
+                cv2.imwrite(f"/home/dong/tmp/tmp2/{page_num}-account.jpg", all_account)
+                cv2.imwrite(f"/home/dong/tmp/tmp2/{page_num}-score.jpg", all_score)
+
                 account_str, account_info = predict_img(account)
                 score_str, score_info = predict_img(score)
-
-                cnn_info_id = save_cnn_info(pdf_file_path, page_num, topic_id, account_str, account_info, all_account, score_str, score_info, all_score)
 
                 relevanceAndMaterial = score_str[0:2]
                 thinkAndFeel = score_str[2:4]
@@ -280,17 +267,23 @@ def process_one(pdf_file_path, topic_id):
 
                 print(f"{account_str=} {score_str=}")
                 current_time = int(round(time.time()*1000))
-                record = list(db.user.aggregate(loads(pipeline(account_str))))
-
-                if len(record) == 0: continue
-
-                [record] = record
-
-                query = {
-                    "clazz.clazzId": record["clazzId"],
-                    "author.userId": record["id"],
-                    "topicId": ObjectId(topic_id)
-                }
+                # record = list(db.user.aggregate(loads(pipeline(account_str))))
+                record = [data[page_num // 2]]
+                if len(record) == 0:
+                    record = {}
+                    query = {
+                        "cnn_info.filename": pdf_file_path,
+                        "cnn_info.page": page_num,
+                        "cnn_info.topic_id": topic_id
+                    }
+                else:
+                    [record] = record
+                    query = {
+                        "clazz.clazzId": record["clazzId"],
+                        "author.userId": record["id"],
+                        "topicId": ObjectId(topic_id)
+                    }
+                print(record["no"], record["account"], record["name"])
                 if db.clazzcircle.count_documents(query) == 0:
 
                     student_pdf_filename = f"{teach_topic_name}.pdf"
@@ -313,8 +306,8 @@ def process_one(pdf_file_path, topic_id):
                                 "writeAndCount": int(writeAndCount) if not writeAndCount.isspace() else 0
                             },
                             "author": {
-                                "userId": record["teacherId"],
-                                "userName": record["teacherName"],
+                                "userId": record["teacherId"] if "teacherId" in record else "",
+                                "userName": record["teacherName"] if "teacherName" in record else "",
                                 "userPhoto": str(record["teacherPhoto"] if "teacherPhoto" in record else "")
                             },
                             "self": False
@@ -323,45 +316,101 @@ def process_one(pdf_file_path, topic_id):
                     db_obj.update({
                         "rawPdf": save_file(student_pdf_filename, raw_pdf(pdf_file, page_num)),
                         "clazz": {
-                            "clazzId": record["clazzId"],
-                            "clazzName": record["clazzNameabbr"]
+                            "clazzId": record["clazzId"] if "clazzId" in record else "",
+                            "clazzName": record["clazzNameabbr"] if "clazzNameabbr" in record else ""
                         },
                         "contentType": "COMPOSITION",
                         "topicId": ObjectId(topic_id),
                         "author": [{
-                            "userId": record["id"],
-                            "userName": record["name"],
+                            "userId": record["id"] if "id" in record else "",
+                            "userName": record["name"] if "name" in record else "",
                             "userPhoto": record["photo"] if "photo" in record else None
                         }],
                         "files": files,
                         "create_time": current_time,
                         "sendTime": current_time,
                         "update_time": current_time,
-                        "status": "PRIVATE",
+                        "status": "PENDING",
                         "subjectId": ObjectId("5fa8b14de54cbd0a21b61c45"),
                         "type": "OFFICE",
-                        "cnn_info": cnn_info_id
+                        "cnn_info": {
+                            "filename": pdf_file_path,
+                            "page": page_num,
+                            "topic_id": topic_id,
+                            "account": account_str,
+                            "account_img": save_file("account_img.jpg", cv2.imencode(".jpg", all_account)[1].tobytes()) if len(all_score) > 0 else "",
+                            "score": score_str,
+                            "score_img": save_file("score_img.jpg", cv2.imencode(".jpg", all_score)[1].tobytes()) if len(all_score) > 0 else "",
+                            "account_info": account_info[:5],
+                            "score_info": score_info[:5],
+                        }
                     })
-                    cc_id = db.clazzcircle.insert_one(db_obj).inserted_id
-                    update_cnn_info(cnn_info_id, cc_id)
+                    db.clazzcircle.insert_one(db_obj)
 
 
 def main():
 
     file_infos = [
-        ("/home/dong/Downloads/JUYE_F_00065.pdf", "60534fd6c87b3f72ac4ea8d2", False),
-        ("/home/dong/Downloads/JUYE_F_00066.pdf", "60534fd6c87b3f72ac4ea8d2", False),
-        ("/home/dong/Downloads/JUYE_F_00067.pdf", "60534fd6c87b3f72ac4ea8d2", True),
-        ("/home/dong/Downloads/JUYE_F_00068.pdf", "60534fd6c87b3f72ac4ea8d2", True),
+
+        ####巨野三年级
+        ("/home/dong/Downloads/JUYE_F_00051.pdf", "190045", "60534fd6c87b3f72ac4ea7eb", True),
+        ("/home/dong/Downloads/JUYE_F_00052.pdf", "190043", "60534fd6c87b3f72ac4ea7eb", True),
+        #("/home/dong/Downloads/JUYE_F_00053.pdf", "190130", "60534fd6c87b3f72ac4ea7eb", True), # 蓝笔
+        #("/home/dong/Downloads/JUYE_F_00054.pdf", "190138", "60534fd6c87b3f72ac4ea7eb", False), # 乱序
+        ("/home/dong/Downloads/JUYE_F_00055.pdf", "190206", "60534fd6c87b3f72ac4ea7eb", True),
+        ("/home/dong/Downloads/JUYE_F_00056.pdf", "190242", "60534fd6c87b3f72ac4ea7eb", True),
+        ("/home/dong/Downloads/JUYE_F_00057.pdf", "190306", "60534fd6c87b3f72ac4ea7eb", True),
+
+        #### 巨野四年级
+        ("/home/dong/Downloads/JUYE_F_00058.pdf", "180035", "60534fd6c87b3f72ac4ea859", True),
+        ("/home/dong/Downloads/JUYE_F_00059.pdf", "180060", "60534fd6c87b3f72ac4ea859", True),
+        ("/home/dong/Downloads/JUYE_F_00060.pdf", "180091", "60534fd6c87b3f72ac4ea859", True),
+        ("/home/dong/Downloads/JUYE_F_00061.pdf", "180196", "60534fd6c87b3f72ac4ea859", True),
+        ("/home/dong/Downloads/JUYE_F_00062.pdf", "180247", "60534fd6c87b3f72ac4ea859", True),
+        ("/home/dong/Downloads/JUYE_F_00063.pdf", "180303", "60534fd6c87b3f72ac4ea859", True),
+        ("/home/dong/Downloads/JUYE_F_00064.pdf", "180175", "60534fd6c87b3f72ac4ea859", True),
+
+        #### 巨野五年级
+        ("/home/dong/Downloads/JUYE_F_00065.pdf", "170004", "60534fd6c87b3f72ac4ea8d2", True),
+        ("/home/dong/Downloads/JUYE_F_00066.pdf", "170086", "60534fd6c87b3f72ac4ea8d2", True),
+        ("/home/dong/Downloads/JUYE_F_00067.pdf", "170125", "60534fd6c87b3f72ac4ea8d2", True),
+        ("/home/dong/Downloads/JUYE_F_00068.pdf", "170199", "60534fd6c87b3f72ac4ea8d2", True),
+        ("/home/dong/Downloads/JUYE_F_00069.pdf", "170238", "60534fd6c87b3f72ac4ea8d2", True),
+        ("/home/dong/Downloads/JUYE_F_00070.pdf", "170283", "60534fd6c87b3f72ac4ea8d2", True),
+        ("/home/dong/Downloads/JUYE_F_00090.pdf", "170316", "60534fd6c87b3f72ac4ea8d2", True),
+
+
+        ##### 张江三年级
+        ("/home/dong/Downloads/JUYE_F_00071.pdf", "190577", "60534fd6c87b3f72ac4ea7eb", True),
+        ("/home/dong/Downloads/JUYE_F_00072.pdf", "190362", "60534fd6c87b3f72ac4ea7eb", True),
+        ("/home/dong/Downloads/JUYE_F_00073.pdf", "190401", "60534fd6c87b3f72ac4ea7eb", True),
+        ("/home/dong/Downloads/JUYE_F_00074.pdf", "190454", "60534fd6c87b3f72ac4ea7eb", True),
+        ("/home/dong/Downloads/JUYE_F_00075.pdf", "190495", "60534fd6c87b3f72ac4ea7eb", True),
+        ("/home/dong/Downloads/JUYE_F_00076.pdf", "190538", "60534fd6c87b3f72ac4ea7eb", True),
+
+        ##### 张江四年级
+        ("/home/dong/Downloads/JUYE_F_00077.pdf", "180336", "60534fd6c87b3f72ac4ea859", True),
+        ("/home/dong/Downloads/JUYE_F_00078.pdf", "180385", "60534fd6c87b3f72ac4ea859", True),
+        ("/home/dong/Downloads/JUYE_F_00079.pdf", "180427", "60534fd6c87b3f72ac4ea859", True),
+        ("/home/dong/Downloads/JUYE_F_00080.pdf", "180468", "60534fd6c87b3f72ac4ea859", True),
+        ("/home/dong/Downloads/JUYE_F_00081.pdf", "180511", "60534fd6c87b3f72ac4ea859", True),
+
+
+        ##### 张江五年级
+        ("/home/dong/Downloads/JUYE_F_00082.pdf", "170412", "60534fd6c87b3f72ac4ea8d2", True),
+        ("/home/dong/Downloads/JUYE_F_00083.pdf", "170492", "60534fd6c87b3f72ac4ea8d2", True),
+        ("/home/dong/Downloads/JUYE_F_00084.pdf", "170548", "60534fd6c87b3f72ac4ea8d2", True),
+        ("/home/dong/Downloads/JUYE_F_00085.pdf", "170630", "60534fd6c87b3f72ac4ea8d2", True),
+        ("/home/dong/Downloads/JUYE_F_00086.pdf", "170648", "60534fd6c87b3f72ac4ea8d2", True),
     ]
 
     db, _ = open_db()
 
-    for file, topicId, process in file_infos:
+    for file, student_account, topicId, process in file_infos:
         if process: continue
-
+        user_doc = db.user.find_one({"account": student_account})
         print(file)
-        process_one(file, topicId)
+        process_one(file, user_doc["clazz"], topicId)
 
 
 if __name__ == "__main__":

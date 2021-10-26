@@ -8,8 +8,8 @@ query = '''
 [
     {
         "$match": {
-            "cnn_info": {
-                "$exists": true
+            "topicId": {
+                "$oid": "60534fd6c87b3f72ac4ea7eb"
             }
         }
     },
@@ -31,11 +31,13 @@ query = '''
         "$match": {
 
             "clazz.school": {
-                "$regex": "巨野"
+                "$regex": "张江"
             },
-            "clazz.grade": "FOUR",
-            "clazz.clazzName": {
-                "$ne": "四7"
+            "clazz.grade": "THREE",
+            "clazz.nameabbr": {
+                    "$not": {
+                        "$eq": "三1"
+                    }
             }
         }
     },
