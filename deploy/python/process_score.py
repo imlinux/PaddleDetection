@@ -12,7 +12,7 @@ from pymongo import MongoClient
 
 from keypoint_predict import KeyPointPredict, split
 from predict import Predict
-import os
+import requests
 
 model_dir = "/home/dong/dev/PaddleDetection/inference_model/yolov3_mobilenet_v1_no_20211018"
 predict = Predict(model_dir)
@@ -22,6 +22,14 @@ def sort_contours(cnts):
 
     boundingBoxes = [cv2.boundingRect(c) for c in cnts]
     return sorted(zip(cnts, boundingBoxes), key=lambda b: (b[1][1], b[1][0]), reverse=False)
+
+
+def qr_code_extract(img):
+
+    url = "https://web1.ps2zhx.pudong-edu.sh.cn/tools/qr_code_extract"
+    files = {'img': cv2.imencode(".jpg", img)[1].tobytes()}
+    r = requests.post(url, files=files)
+    return r.json()
 
 
 def predict_img(img_list):
@@ -99,17 +107,17 @@ def process_img(img_raw):
 def process_one(pdf_file_path):
     with fitz.open(pdf_file_path) as pdf_file:
 
-        for page_num in range(0, len(pdf_file), 2):
+        for page_num in range(1, len(pdf_file), 2):
 
             table_rows = []
 
-            page0_img = pdf_file[page_num].getImageList()[0][0]
-            page1_img = pdf_file[page_num + 1].getImageList()[0][0]
+            page0_img = pdf_file[page_num - 1].getImageList()[0][0]
+            page1_img = pdf_file[page_num].getImageList()[0][0]
 
             base_image = pdf_file.extractImage(page0_img)
             image_bytes = base_image["image"]
             img = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), -1)
-
+            print(qr_code_extract(img))
             table_rows += process_img(img)
 
             base_image = pdf_file.extractImage(page1_img)
