@@ -23,7 +23,7 @@ def sort_contours(cnts):
 
 def qr_code_extract(img):
 
-    url = "https://web1.ps2zhx.pudong-edu.sh.cn/tools/qr_code_extract"
+    url = "https://dualive.com:8443/tools/qr_code_extract"
     files = {'img': cv2.imencode(".jpg", img)[1].tobytes()}
     r = requests.post(url, files=files)
     return r.json()
@@ -36,6 +36,13 @@ def predict_img(img_list):
 
     no = ocr.ocr(img_list[0], cls=True)
     name = ocr.ocr(img_list[1], cls=True)
+
+    if len(no) < 1:
+        no = [[[], ("", 1)]]
+
+    if len(name) < 1:
+        name = [[[], ("", 1)]]
+
     for img in img_list[3:]:
 
         if img.shape[0] == 0 or img.shape[1] == 0 or img.shape[2] == 0:
@@ -59,12 +66,6 @@ def predict_img(img_list):
             ret += " "
             c.append(0)
 
-        if len(no) < 1:
-            no = [[[], ("", 1)]]
-
-        if len(name) < 1:
-            name = [[[], ("", 1)]]
-
     return *no, *name, ret, info
 
 
@@ -72,21 +73,35 @@ def edge_detection(image):
 
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blur = cv2.GaussianBlur(gray, (5, 5), 0)
+
+    # blur = ~blur
+    # kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    # verticle_lines_img = cv2.morphologyEx(blur, cv2.MORPH_CLOSE, kernel, iterations=10)
+    # verticle_lines_img = ~verticle_lines_img
+
     edge = cv2.Canny(blur, 100, 200)
 
-    contours, _ = cv2.findContours(edge, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(edge, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     for c in contours:
         ((x, y), (w, h), angle) = cv2.minAreaRect(c)
         if 1000 < w and 1000 < h:
-            peri = cv2.arcLength(c, True)
-            approx = cv2.approxPolyDP(c, 0.02 * peri, True)
+            hull = cv2.convexHull(c)
+            peri = cv2.arcLength(hull, True)
+            approx = cv2.approxPolyDP(hull, 0.02 * peri, True)
 
             if len(approx) == 4:
                 t = np.array(approx)
                 t = t.reshape(-1, 2)
                 print("透视转换")
-                return image, perspective.four_point_transform(image, t)
+                processed_img = perspective.four_point_transform(image, t)
+                processed_img = cv2.rectangle(processed_img, (0, 0), (processed_img.shape[1], processed_img.shape[0]), (0, 0, 0), thickness=10)
+                return image, processed_img
+            else:
+                os.makedirs("./output", exist_ok=True)
+                cv2.imwrite(f"./output/透视{time.time()}.jpg",
+                            cv2.drawContours(image.copy(), [c], -1, (0, 0, 255), 3))
+
     print("未做透视转换")
     return image, image
 
