@@ -1,22 +1,17 @@
-import time
-from urllib.parse import quote_plus
 import pathlib
+
 import cv2
 import fitz
-import gridfs
 import numpy as np
-from bson import ObjectId
-from bson.json_util import loads
-from imutils import perspective
-from pymongo import MongoClient
-
-from keypoint_predict import KeyPointPredict, split
-from predict import Predict
 import requests
+
+from predict import Predict
+
+from paddleocr import PaddleOCR
 
 model_dir = "/home/dong/dev/PaddleDetection/inference_model/yolov3_mobilenet_v1_no_20211018"
 predict = Predict(model_dir)
-
+ocr = PaddleOCR(use_angle_cls=False, lang="ch", use_gpu=False)
 
 def sort_contours(cnts):
 
@@ -36,7 +31,10 @@ def predict_img(img_list):
     ret = ""
     info = []
     c = []
-    for img in img_list:
+
+    no = ocr.ocr(img_list[0], cls=True)
+    name = ocr.ocr(img_list[1], cls=True)
+    for img in img_list[3:]:
 
         if img.shape[0] == 0 or img.shape[1] == 0 or img.shape[2] == 0:
             ret += " "
@@ -58,8 +56,14 @@ def predict_img(img_list):
             info.append([])
             ret += " "
             c.append(0)
-    print(c)
-    return ret, info
+
+        if len(no) < 1:
+            no = [[[], ("", 1)]]
+
+        if len(name) < 1:
+            name = [[[], ("", 1)]]
+
+    return *no, *name, ret, info
 
 
 def process_img(img_raw):
@@ -92,14 +96,14 @@ def process_img(img_raw):
 
         x, y, w, h = b
 
-        if 80 < w < 170 and 80 < h < 170:
+        if 80 < w < 600 and 80 < h < 170:
             new_img = img_raw[y:y + h, x:x + w]
             table_cells.append(new_img)
 
     table_rows = []
 
-    for i in range(0, len(table_cells), 9):
-        table_rows.append(table_cells[i: i + 9])
+    for i in range(0, len(table_cells), 11):
+        table_rows.append(table_cells[i: i + 11])
 
     return table_rows
 
@@ -127,7 +131,8 @@ def process_one(pdf_file_path):
             table_rows += process_img(img)
 
             for table_row in table_rows:
-                print(predict_img(table_row))
+                [no_location, (no, no_score)], [name_location, (name, name_score)], score, info = predict_img(table_row)
+                print(f"{no=}, {name=}, {score=}")
 
 
 def main():
