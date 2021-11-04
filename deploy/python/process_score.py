@@ -1,6 +1,6 @@
 import os
 import pathlib
-
+import time
 import cv2
 import fitz
 import numpy as np
@@ -69,7 +69,10 @@ def predict_img(img_list):
 
 
 def edge_detection(image):
-    edge = cv2.Canny(image, 100, 200)
+
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    edge = cv2.Canny(blur, 100, 200)
 
     contours, _ = cv2.findContours(edge, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
 
@@ -82,11 +85,12 @@ def edge_detection(image):
             if len(approx) == 4:
                 t = np.array(approx)
                 t = t.reshape(-1, 2)
+                print("透视转换")
                 return image, perspective.four_point_transform(image, t)
-
+    print("未做透视转换")
     return image, image
 
-idx=0
+
 def process_img(img_raw):
     img_raw, img = edge_detection(img_raw)
     img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -128,7 +132,7 @@ def process_img(img_raw):
         table_rows.append(table_cells[i: i + 11])
 
     os.makedirs("./output", exist_ok=True)
-    cv2.imwrite(f"./output/{idx}.jpg", cv2.drawContours(img_raw.copy(), contours, -1, (0, 0, 255), 3))
+    cv2.imwrite(f"./output/{time.time()}.jpg", cv2.drawContours(img.copy(), contours, -1, (0, 0, 255), 3))
     return table_rows
 
 
@@ -152,8 +156,8 @@ def process_one(pdf_file_path):
             image_bytes = base_image["image"]
             img = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), -1)
 
-            result = table_engine(img)
-            img = result[0]["img"]
+            # result = table_engine(img)
+            # img = result[0]["img"]
             table_rows += process_img(img)
 
             for table_row in table_rows:
