@@ -1,17 +1,19 @@
+import os
 import pathlib
 
 import cv2
 import fitz
 import numpy as np
 import requests
-
+from imutils import perspective
 from predict import Predict
 
-from paddleocr import PaddleOCR
+from paddleocr import PaddleOCR, PPStructure
 
 model_dir = "/home/dong/dev/PaddleDetection/inference_model/yolov3_mobilenet_v1_no_20211018"
 predict = Predict(model_dir)
 ocr = PaddleOCR(use_angle_cls=False, lang="ch", use_gpu=False)
+table_engine = PPStructure(show_log=True, use_gpu=False)
 
 def sort_contours(cnts):
 
@@ -66,8 +68,28 @@ def predict_img(img_list):
     return *no, *name, ret, info
 
 
+def edge_detection(image):
+    edge = cv2.Canny(image, 100, 200)
+
+    contours, _ = cv2.findContours(edge, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+
+    for c in contours:
+        ((x, y), (w, h), angle) = cv2.minAreaRect(c)
+        if 1000 < w and 1000 < h:
+            peri = cv2.arcLength(c, True)
+            approx = cv2.approxPolyDP(c, 0.02 * peri, True)
+
+            if len(approx) == 4:
+                t = np.array(approx)
+                t = t.reshape(-1, 2)
+                return image, perspective.four_point_transform(image, t)
+
+    return image, image
+
+idx=0
 def process_img(img_raw):
-    img_gray = cv2.cvtColor(img_raw, cv2.COLOR_BGR2GRAY)
+    img_raw, img = edge_detection(img_raw)
+    img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     thresh, img_bin = cv2.threshold(img_gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
     img_bin = 255 - img_bin
@@ -97,7 +119,7 @@ def process_img(img_raw):
         x, y, w, h = b
 
         if 80 < w < 600 and 80 < h < 170:
-            new_img = img_raw[y:y + h, x:x + w]
+            new_img = img[y:y + h, x:x + w]
             table_cells.append(new_img)
 
     table_rows = []
@@ -105,6 +127,8 @@ def process_img(img_raw):
     for i in range(0, len(table_cells), 11):
         table_rows.append(table_cells[i: i + 11])
 
+    os.makedirs("./output", exist_ok=True)
+    cv2.imwrite(f"./output/{idx}.jpg", cv2.drawContours(img_raw.copy(), contours, -1, (0, 0, 255), 3))
     return table_rows
 
 
@@ -128,6 +152,8 @@ def process_one(pdf_file_path):
             image_bytes = base_image["image"]
             img = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), -1)
 
+            result = table_engine(img)
+            img = result[0]["img"]
             table_rows += process_img(img)
 
             for table_row in table_rows:
