@@ -1,32 +1,27 @@
 import os
 import pathlib
 import time
+from my_common import open_db, examine_info, qr_code_extract, save_file, horizontal_merge_img
+
 import cv2
 import fitz
 import numpy as np
-import requests
+from bson import ObjectId
 from imutils import perspective
-from predict import Predict
-
 from paddleocr import PaddleOCR, PPStructure
+
+from predict import Predict
 
 model_dir = "/home/dong/dev/PaddleDetection/inference_model/yolov3_mobilenet_v1_no_20211018"
 predict = Predict(model_dir)
 ocr = PaddleOCR(use_angle_cls=False, lang="ch", use_gpu=False)
 table_engine = PPStructure(show_log=True, use_gpu=False)
 
+
 def sort_contours(cnts):
 
     boundingBoxes = [cv2.boundingRect(c) for c in cnts]
     return sorted(zip(cnts, boundingBoxes), key=lambda b: (b[1][1], b[1][0]), reverse=False)
-
-
-def qr_code_extract(img):
-
-    url = "https://dualive.com:8443/tools/qr_code_extract"
-    files = {'img': cv2.imencode(".jpg", img)[1].tobytes()}
-    r = requests.post(url, files=files)
-    return r.json()
 
 
 def predict_img(img_list):
@@ -164,7 +159,8 @@ def process_one(pdf_file_path):
             base_image = pdf_file.extractImage(page0_img)
             image_bytes = base_image["image"]
             img = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), -1)
-            print(qr_code_extract(img))
+            qr_code = qr_code_extract(img)
+            (examine_id, clazz_id, subject_id) = qr_code.split("/")
             table_rows += process_img(img)
 
             base_image = pdf_file.extractImage(page1_img)
@@ -177,12 +173,98 @@ def process_one(pdf_file_path):
 
             for table_row in table_rows:
                 [no_location, (no, no_score)], [name_location, (name, name_score)], score, info = predict_img(table_row)
-                print(f"{no=}, {name=}, {score=}")
+                print(f"{no=}, {name=}, {score=}, {qr_code=}")
+                save_score(no, name, score, examine_id, clazz_id, subject_id, table_row)
+
+
+def score_item(s, max_score):
+
+    if s >= max_score * 0.9:
+        return 4
+    elif s >= max_score * 0.8:
+        return 3
+    elif s >= max_score * 0.6:
+        return 2
+    elif s > 0:
+        return 1
+    else:
+        return 0
+
+
+def save_score(no, name, score, examine_id, clazz_id, subject_id, imgs):
+
+    db, _ = open_db()
+    student = db.user.find_one({"no": no, "clazz": clazz_id})
+    if student is None:
+        print(f"未找到{no}")
+        return
+
+    examine = list(db.examine.aggregate(examine_info(examine_id, clazz_id, subject_id)))
+    if len(examine) > 0:
+        [examine] = examine
+
+    scores = [score[0:2], score[3:5], score[6:]]
+
+    score_info = []
+    for idx, s in enumerate(scores):
+        kpi_info = examine["studentKpi"][idx]
+        starNumber = kpi_info["starNumber"]
+
+        input_score_value = int(s) if not s.isspace() else 0
+        input_score_value = input_score_value if not score.isspace() else starNumber
+        final_score = starNumber - input_score_value
+
+        score_info.append({
+            "key": kpi_info["name"] + "分值",
+            "value": final_score
+        })
+        score_info.append({
+            "key": kpi_info["name"],
+            "value": score_item(final_score, starNumber)
+        })
+
+    score_doc = {
+        "examineId": ObjectId(examine_id),
+        "clazzId": ObjectId(clazz_id),
+        "subjectId": ObjectId(subject_id),
+        "studentId": student["_id"],
+        "className": examine["clazzName"],
+        "createUserId": examine["teacherId"],
+        "createUserName": examine["teacherName"],
+        "create_time": int(round(time.time(), 0) * 1000),
+        "update_time": int(round(time.time(), 0) * 1000),
+        "modifiedUserId": examine["teacherId"],
+        "modifiedUserName": examine["teacherName"],
+        "no": examine["clazzNo"],
+        "school": examine["clazzSchool"],
+        "startyear": examine["clazzStartyear"],
+        "score": score_info
+    }
+    if db.score.count({"examineId": ObjectId(examine_id), "clazzId": ObjectId(clazz_id), "subjectId": ObjectId(subject_id), "studentId": student["_id"]}) == 0:
+        cnn_info = {
+            "score_img": save_file("score.jpg", cv2.imencode(".jpg", horizontal_merge_img(imgs))[1].tobytes()),
+            "score_str": score,
+            "name": name
+        }
+        print(f"{score_doc=}")
+        score_doc["cnn_info"] = cnn_info
+        db.score.insert_one(score_doc)
+        db.examine.update_one({"_id": ObjectId(examine_id)}, {
+            "$set": {
+                "clazzSnapshots.$[elem].teachers.$[s].submit": True
+            }
+        }, array_filters = [
+            {"elem.clazzId": ObjectId(clazz_id)},
+            {
+                "s.teacherId": examine["teacherId"],
+                "s.subjectId": student["_id"]
+            }
+        ])
 
 
 def main():
 
-    for path in pathlib.Path("/home/dong/tmp/score").glob("**/*.pdf"):
+    for path in pathlib.Path("/home/dong/tmp/score2").glob("**/*.pdf"):
         print(path)
         process_one(str(path))
 
