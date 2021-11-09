@@ -6,10 +6,10 @@ from bson.json_util import loads
 import requests
 import cv2
 import numpy as np
-
+import fitz
 
 def open_db():
-    uri = "mongodb://%s:%s@%s:%s" % (quote_plus("admin"), quote_plus("1q2w3e4r5t~!@#$%"), "10.64.152.136", "32700")
+    uri = "mongodb://%s:%s@%s:%s" % (quote_plus("admin"), quote_plus("1q2w3e4r5t~!@#$%"), "127.0.0.1", "57017")
     client = MongoClient(uri)
     db = client["sigmai"]
 
@@ -48,6 +48,19 @@ def horizontal_merge_img(imgs):
         ret[:h, w - img.shape[1]:w, :3] = img
 
     return ret
+
+
+def extract_img_from_pdf(file, start = 0):
+    with fitz.open(file) as pdf_file:
+        for page_num in range(start, len(pdf_file)):
+            page = pdf_file[page_num]
+            for img in page.getImageList():
+                base_image = pdf_file.extractImage(img[0])
+                image_bytes = base_image["image"]
+                image_ext = base_image["ext"]
+                img = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), -1)
+                yield img
+
 
 def examine_info(examineId, clazzId, subjectId):
 

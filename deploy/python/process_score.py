@@ -206,6 +206,8 @@ def save_score(no, name, score, examine_id, clazz_id, subject_id, imgs):
     scores = [score[0:2], score[3:5], score[6:]]
 
     score_info = []
+    total_score = 0
+    total_starNumber = 0
     for idx, s in enumerate(scores):
         kpi_info = examine["studentKpi"][idx]
         starNumber = kpi_info["starNumber"]
@@ -222,6 +224,18 @@ def save_score(no, name, score, examine_id, clazz_id, subject_id, imgs):
             "key": kpi_info["name"],
             "value": score_item(final_score, starNumber)
         })
+        total_score += final_score
+        total_starNumber += starNumber
+
+    score_info.append({
+        "key": "成绩分值",
+        "value": total_score
+    })
+
+    score_info.append({
+        "key": "成绩",
+        "value": score_item(total_score, total_starNumber)
+    })
 
     score_doc = {
         "examineId": ObjectId(examine_id),
@@ -257,16 +271,16 @@ def save_score(no, name, score, examine_id, clazz_id, subject_id, imgs):
             {"elem.clazzId": ObjectId(clazz_id)},
             {
                 "s.teacherId": examine["teacherId"],
-                "s.subjectId": student["_id"]
+                "s.subjectId": ObjectId(subject_id)
             }
         ])
 
 
 def main():
-
-    for path in pathlib.Path("/home/dong/tmp/score2").glob("**/*.pdf"):
-        print(path)
-        process_one(str(path))
+    process_one("/home/dong/tmp/score2/SHENJIANG_F_00072.pdf")
+    # for path in pathlib.Path("/home/dong/tmp/score2").glob("**/*.pdf"):
+    #     print(path)
+    #     process_one(str(path))
 
 
 if __name__ == "__main__":
