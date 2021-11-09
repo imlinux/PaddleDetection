@@ -1,125 +1,15 @@
+import os
 import time
-from urllib.parse import quote_plus
 
 import cv2
 import fitz
-import gridfs
 import numpy as np
 from bson import ObjectId
-from bson.json_util import loads
 from imutils import perspective
-from pymongo import MongoClient
 
 from keypoint_predict import KeyPointPredict, split
+from my_common import zuowen_query, qr_code_extract, open_db
 from predict import Predict
-
-
-def pipeline(clazz_id):
-    return  '''
-        [
-            {
-                "$match": {
-                    "clazz": ''' + '"' + clazz_id + '",' + '''
-                    "status": {
-                        "$in": ["在籍在读", "借读"]
-                    },
-                    "name": {
-                        "$not": {
-                            "$in": ["李欣澄", "野智美", "周佳礼", "钱雨琪", "张一辰", "孙笠玮"]
-                        }
-                    }
-                }
-            },
-            {
-                "$addFields": {
-                    "sortNo": {
-                        "$toInt": {
-                            "$cond": {
-                                "if": {
-                                    "$eq": ["", { "$ifNull": ["$no", ""] }]
-                                },
-                                "then": "1000000",
-                                "else": "$no"
-                            }
-                        }
-                    },
-                    "clazzId": {
-                        "$toObjectId": "$clazz"
-                    }
-                }
-            },
-    
-            {
-                "$lookup": {
-                    "from": "clazz",
-                    "foreignField": "_id",
-                    "localField": "clazzId",
-                    "as": "clazz"
-                }
-            },
-            
-            {
-                "$unwind": "$clazz"
-            },
-            
-            {
-                "$addFields": {
-                    "clazz.teachers": {
-                        "$filter": {
-                            "input": "$clazz.teachers",
-                            "as": "item",
-                            "cond": {
-                                "$eq": ["$$item.subjectId", {"$toObjectId": "5fa8b14de54cbd0a21b61c45"}]
-                            }
-                        }
-                    }
-                }
-            },
-            {
-                "$unwind": "$clazz.teachers"
-            },
-            {
-                "$lookup": {
-                    "from": "user",
-                    "localField": "clazz.teachers.teacherId",
-                    "foreignField": "_id",
-                    "as": "teacher"
-                }
-            },
-            {
-                "$unwind": "$teacher"
-            },
-    
-            {
-                "$unwind": "$clazz"
-            },
-            {
-                "$sort": {
-                    "sortNo": 1
-                }
-            },
-            {
-                "$project": {
-                    "id": "$_id",
-                    "name": 1,
-                    "photo": 1,
-                    "school": "$clazz.school",
-                    "schoolabbr": "$clazz.schoolabbr",
-                    "clazzId": "$clazz._id",
-                    "clazzName": "$clazz.name",
-                    "clazzNameabbr": "$clazz.nameabbr",
-                    "grade": "$clazz.grade",
-                    "startyear": "$clazz.startyear",
-                    "teacherName": "$teacher.name",
-                    "teacherId": "$teacher._id",
-                    "teacherPhoto": "$teacher.photo",
-                    "no": 1,
-                    "account": 1
-                }
-            }
-        ]
-    '''
-
 
 key_point_model_dir = "/home/dong/dev/PaddleDetection/inference_model/higherhrnet_hrnet_w32_512_lo"
 model_dir = "/home/dong/dev/PaddleDetection/inference_model/yolov3_mobilenet_v1_no_20211018"
@@ -127,14 +17,6 @@ model_dir = "/home/dong/dev/PaddleDetection/inference_model/yolov3_mobilenet_v1_
 
 keyPointPredict = KeyPointPredict(key_point_model_dir)
 predict = Predict(model_dir)
-
-
-def open_db():
-    uri = "mongodb://%s:%s@%s:%s" % (quote_plus("admin"), quote_plus("1q2w3e4r5t~!@#$%"), "127.0.0.1", "27019")
-    client = MongoClient(uri)
-    db = client["sigmai"]
-
-    return db, gridfs.GridFS(db)
 
 
 def predict_img(img_list):
@@ -247,12 +129,11 @@ def save_file(filename, data):
     return fs.put(data, filename=filename)
 
 
-def process_one(pdf_file_path, clazz_id, topic_id):
+def process_one(pdf_file_path, clazz_id):
     db, fs = open_db()
-    topic_doc = db.teach_topic.find_one({"_id": ObjectId(topic_id)})
-    teach_topic_name = topic_doc["name"]
-    data = list(db.user.aggregate(loads(pipeline(clazz_id))))
-
+    data = list(db.user.aggregate(zuowen_query(clazz_id)))
+    total = len(data)
+    account_match_cnt = 0
     with fitz.open(pdf_file_path) as pdf_file:
         for page_num in range(1, len(pdf_file), 2):
             page = pdf_file[page_num]
@@ -262,32 +143,45 @@ def process_one(pdf_file_path, clazz_id, topic_id):
                 image_ext = base_image["ext"]
 
                 img = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), -1)
-                result = keyPointPredict(img)
-                skeletons, scores = result["keypoint"]
-                pts = np.array(
-                    [skeletons[0][0][0: 2], skeletons[0][1][0: 2], skeletons[0][2][0: 2], skeletons[0][3][0: 2]])
+                qrcode = qr_code_extract(img)
 
-                img_result = perspective.four_point_transform(cv2.imdecode(np.frombuffer(image_bytes, np.uint8), -1), pts)
-                account, score, all_account, all_score = split(img_result)
+                if qrcode == "":
+                    print(f"{pdf_file_path}第{page_num + 1}页，未识别到二维码")
+                    return
 
-                for idx, a in enumerate(account):
-                    cv2.imwrite(f"/home/dong/tmp/tmp2/{page_num}-a-{idx}.jpg", a)
+                teach_topic_name, topic_id = qrcode.split("/")
+                topic_id = ObjectId(topic_id)
+                topic_doc = db.teach_topic.find_one({"_id": topic_id})
+                composition_type = topic_doc["compositionType"] if "compositionType" in topic_doc else ""
 
-                for idx, s in enumerate(score):
-                    cv2.imwrite(f"/home/dong/tmp/tmp2/{page_num}-s-{idx}.jpg", s)
+                print(f"{teach_topic_name=}, {topic_id=}, {composition_type=}")
 
-                cv2.imwrite(f"/home/dong/tmp/tmp2/{page_num}-account.jpg", all_account)
-                cv2.imwrite(f"/home/dong/tmp/tmp2/{page_num}-score.jpg", all_score)
+                if composition_type != "ACTIVITY_WORD" and composition_type != "ACTIVITY":
+                    result = keyPointPredict(img)
+                    skeletons, scores = result["keypoint"]
+                    pts = np.array(
+                        [skeletons[0][0][0: 2], skeletons[0][1][0: 2], skeletons[0][2][0: 2], skeletons[0][3][0: 2]])
 
-                account_str, account_info = predict_img(account)
-                score_str, score_info = predict_img(score)
+                    img_result = perspective.four_point_transform(cv2.imdecode(np.frombuffer(image_bytes, np.uint8), -1), pts)
+                    account, score, all_account, all_score = split(img_result)
 
-                relevanceAndMaterial = score_str[0:2]
-                thinkAndFeel = score_str[2:4]
-                languageAndExpress = score_str[4:6]
-                writeAndCount = score_str[6:8]
+                    account_str, account_info = predict_img(account)
+                    score_str, score_info = predict_img(score)
 
-                print(f"{account_str=} {score_str=}")
+                    relevanceAndMaterial = score_str[0:2]
+                    thinkAndFeel = score_str[2:4]
+                    languageAndExpress = score_str[4:6]
+                    writeAndCount = score_str[6:8]
+                else:
+                    score_str = " "
+                    account_str = " "
+                    account = []
+                    score = []
+                    all_account = np.empty((0, 0, 0))
+                    all_score = np.empty((0, 0, 0))
+                    account_info = []
+                    score_info = []
+
                 current_time = int(round(time.time()*1000))
                 # record = list(db.user.aggregate(loads(pipeline(account_str))))
                 record = [data[page_num // 2]]
@@ -305,7 +199,29 @@ def process_one(pdf_file_path, clazz_id, topic_id):
                         "author.userId": record["id"],
                         "topicId": ObjectId(topic_id)
                     }
-                print(record["no"], record["account"], record["name"])
+
+                account_match = record["account"] == account_str
+
+                if account_match:
+                    account_match_cnt += 1
+                else:
+                    os.makedirs("/home/dong/tmp/tmp2", exist_ok=True)
+                    for idx, a in enumerate(account):
+                        shape = a.shape
+                        if shape[0] > 0 and shape[1] > 0:
+                            cv2.imwrite(f"/home/dong/tmp/tmp2/{page_num}-a-{idx}.jpg", a)
+
+                    for idx, s in enumerate(score):
+                        if len(s) > 0:
+                            cv2.imwrite(f"/home/dong/tmp/tmp2/{page_num}-s-{idx}.jpg", s)
+
+                    if all_account.shape[0] > 0:
+                        cv2.imwrite(f"/home/dong/tmp/tmp2/{page_num}-account.jpg", all_account)
+                    if all_score.shape[0] > 0:
+                        cv2.imwrite(f"/home/dong/tmp/tmp2/{page_num}-score.jpg", all_score)
+
+                print(f"{record['no']} {record['account']} {record['name']} {account_str=} {score_str=} {account_match=} {account_match_cnt}/{total}={account_match_cnt/total}")
+
                 if db.clazzcircle.count_documents(query) == 0:
 
                     student_pdf_filename = f"{teach_topic_name}.pdf"
@@ -360,9 +276,9 @@ def process_one(pdf_file_path, clazz_id, topic_id):
                             "page": page_num,
                             "topic_id": topic_id,
                             "account": account_str,
-                            "account_img": save_file("account_img.jpg", cv2.imencode(".jpg", all_account)[1].tobytes()) if len(all_score) > 0 else "",
+                            "account_img": save_file("account_img.jpg", cv2.imencode(".jpg", all_account)[1].tobytes()) if len(all_score) > 0 else None,
                             "score": score_str,
-                            "score_img": save_file("score_img.jpg", cv2.imencode(".jpg", all_score)[1].tobytes()) if len(all_score) > 0 else "",
+                            "score_img": save_file("score_img.jpg", cv2.imencode(".jpg", all_score)[1].tobytes()) if len(all_score) > 0 else None,
                             "account_info": account_info[:5],
                             "score_info": score_info[:5],
                         }
@@ -373,69 +289,39 @@ def process_one(pdf_file_path, clazz_id, topic_id):
 def main():
 
     file_infos = [
-
-        ####巨野三年级
-        ("/home/dong/Downloads/JUYE_F_00051.pdf", "190045", "60534fd6c87b3f72ac4ea7eb", True),
-        ("/home/dong/Downloads/JUYE_F_00052.pdf", "190043", "60534fd6c87b3f72ac4ea7eb", True),
-        ("/home/dong/tmp/zuowen2/JUYE_F_00053.pdf", "190130", "60534fd6c87b3f72ac4ea7eb", True),
-        ("/home/dong/tmp/zuowen2/JUYE_F_00054.pdf", "190159", "60534fd6c87b3f72ac4ea7eb", True),
-        ("/home/dong/Downloads/JUYE_F_00055.pdf", "190206", "60534fd6c87b3f72ac4ea7eb", True),
-        ("/home/dong/Downloads/JUYE_F_00056.pdf", "190242", "60534fd6c87b3f72ac4ea7eb", True),
-        ("/home/dong/Downloads/JUYE_F_00057.pdf", "190306", "60534fd6c87b3f72ac4ea7eb", True),
-
-        #### 巨野四年级
-        ("/home/dong/Downloads/JUYE_F_00058.pdf", "180035", "60534fd6c87b3f72ac4ea859", True),
-        ("/home/dong/Downloads/JUYE_F_00059.pdf", "180060", "60534fd6c87b3f72ac4ea859", True),
-        ("/home/dong/Downloads/JUYE_F_00060.pdf", "180091", "60534fd6c87b3f72ac4ea859", True),
-        ("/home/dong/Downloads/JUYE_F_00061.pdf", "180196", "60534fd6c87b3f72ac4ea859", True),
-        ("/home/dong/Downloads/JUYE_F_00062.pdf", "180247", "60534fd6c87b3f72ac4ea859", True),
-        ("/home/dong/Downloads/JUYE_F_00063.pdf", "180303", "60534fd6c87b3f72ac4ea859", True),
-        ("/home/dong/Downloads/JUYE_F_00064.pdf", "180175", "60534fd6c87b3f72ac4ea859", True),
-
-        #### 巨野五年级
-        ("/home/dong/Downloads/JUYE_F_00065.pdf", "170004", "60534fd6c87b3f72ac4ea8d2", True),
-        ("/home/dong/Downloads/JUYE_F_00066.pdf", "170086", "60534fd6c87b3f72ac4ea8d2", True),
-        ("/home/dong/Downloads/JUYE_F_00067.pdf", "170125", "60534fd6c87b3f72ac4ea8d2", True),
-        ("/home/dong/Downloads/JUYE_F_00068.pdf", "170199", "60534fd6c87b3f72ac4ea8d2", True),
-        ("/home/dong/Downloads/JUYE_F_00069.pdf", "170238", "60534fd6c87b3f72ac4ea8d2", True),
-        ("/home/dong/Downloads/JUYE_F_00070.pdf", "170283", "60534fd6c87b3f72ac4ea8d2", True),
-        ("/home/dong/Downloads/JUYE_F_00090.pdf", "170316", "60534fd6c87b3f72ac4ea8d2", True),
-
-
-        ##### 张江三年级
-        ("/home/dong/Downloads/JUYE_F_00071.pdf", "190577", "60534fd6c87b3f72ac4ea7eb", True),
-        ("/home/dong/Downloads/JUYE_F_00072.pdf", "190362", "60534fd6c87b3f72ac4ea7eb", True),
-        ("/home/dong/Downloads/JUYE_F_00073.pdf", "190401", "60534fd6c87b3f72ac4ea7eb", True),
-        ("/home/dong/Downloads/JUYE_F_00074.pdf", "190454", "60534fd6c87b3f72ac4ea7eb", True),
-        ("/home/dong/Downloads/JUYE_F_00075.pdf", "190495", "60534fd6c87b3f72ac4ea7eb", True),
-        ("/home/dong/Downloads/JUYE_F_00076.pdf", "190538", "60534fd6c87b3f72ac4ea7eb", True),
-
-        ##### 张江四年级
-        ("/home/dong/Downloads/JUYE_F_00077.pdf", "180336", "60534fd6c87b3f72ac4ea859", True),
-        ("/home/dong/Downloads/JUYE_F_00078.pdf", "180385", "60534fd6c87b3f72ac4ea859", True),
-        ("/home/dong/Downloads/JUYE_F_00079.pdf", "180427", "60534fd6c87b3f72ac4ea859", True),
-        ("/home/dong/Downloads/JUYE_F_00080.pdf", "180468", "60534fd6c87b3f72ac4ea859", True),
-        ("/home/dong/Downloads/JUYE_F_00081.pdf", "180511", "60534fd6c87b3f72ac4ea859", True),
-
-
-        ##### 张江五年级
-        ("/home/dong/Downloads/JUYE_F_00082.pdf", "170412", "60534fd6c87b3f72ac4ea8d2", True),
-        ("/home/dong/Downloads/JUYE_F_00083.pdf", "170492", "60534fd6c87b3f72ac4ea8d2", True),
-        ("/home/dong/Downloads/JUYE_F_00084.pdf", "170548", "60534fd6c87b3f72ac4ea8d2", True),
-        ("/home/dong/Downloads/JUYE_F_00085.pdf", "170630", "60534fd6c87b3f72ac4ea8d2", True),
-        ("/home/dong/Downloads/JUYE_F_00086.pdf", "170648", "60534fd6c87b3f72ac4ea8d2", True),
-
-        #### 遗留
-        ("/home/dong/tmp/zuowen2/JUYE_F_00088.pdf", "190161", "60534fd6c87b3f72ac4ea7eb", False),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00093.pdf", "170004", True),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00094.pdf", "170086", True),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00095.pdf", "170125", True),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00097.pdf", "190043", True),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00098.pdf", "190045", True),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00099.pdf", "190130", True),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00100.pdf", "190577", True),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00102.pdf", "190401", True),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00103.pdf", "190454", True),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00104.pdf", "180035", True),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00105.pdf", "190200", True),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00106.pdf", "180004", True),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00107.pdf", "190188", True),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00108.pdf", "190250", True),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00109.pdf", "190269", True),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00110.pdf", "190097", True),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00111.pdf", "190362", True),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00112.pdf", "190495", True),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00113.pdf", "190538", True),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00115.pdf", "170412", True),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00116.pdf", "170492", True),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00118.pdf", "170548", True),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00119.pdf", "170630", True),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00120.pdf", "170648", True),
     ]
 
     db, _ = open_db()
 
-    for file, student_account, topicId, process in file_infos:
+    for file, student_account, process in file_infos:
         if process: continue
         user_doc = db.user.find_one({"account": student_account})
         print(file)
-        process_one(file, user_doc["clazz"], topicId)
+        process_one(file, user_doc["clazz"])
 
 
 if __name__ == "__main__":
