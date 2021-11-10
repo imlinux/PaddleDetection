@@ -4,12 +4,15 @@ from imutils import perspective
 import time
 import os
 import numpy as np
+from paddleocr import PaddleOCR
+
 from predict import Predict
 from my_common import extract_img_from_pdf
 import json
 
 model_dir = "/home/dong/dev/PaddleDetection/inference_model/yolov3_mobilenet_v1_no_20211018"
 predict = Predict(model_dir)
+ocr = PaddleOCR(use_angle_cls=False, lang="ch", use_gpu=False)
 
 def sort_contours(cnts):
 
@@ -82,36 +85,56 @@ def process_img(img_raw, pdf_name, page_num):
     contours, hierarchy = cv2.findContours(img_final_bin, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
     items = []
+    cnt = 0
     for c, b in sort_contours(contours):
 
         x, y, w, h = b
-
         if 40 < w < 600 and 40 < h < 170:
+            idx = cnt % 11
             new_img = img[y:y + h, x:x + w]
-            result = predict([new_img])
-            boxes = result["boxes"]
 
-            for box in boxes:
-                clsid, bbox, score = int(box[0]), box[2:], box[1]
-                if score >= 0.7:
-                    xmin, ymin, xmax, ymax = bbox
-                    w = int(xmax - xmin)
-                    h = int(ymax - ymin)
-                    x = int(x + xmin)
-                    y = int(y + ymin)
-                    # img = cv2.rectangle(img, (x, y), (x + w, y + h), (0, 0, 255), thickness=1)
-                    # cv2.imshow("", img)
-                    # cv2.waitKey(0)
+            if idx == 0 or idx == 1:
+                no = ocr.ocr(new_img, cls=True)
+                for r in no:
+                    [p1, p2, p3, p4] = r[0]
+
                     items.append({
-                        "transcription": str(clsid),
+                        "transcription": str(r[1][0]),
                         "points": [
-                            [x, y],
-                            [x + w, y],
-                            [x + w, y + h],
-                            [x, y + h]
+                            [p1[0] + x, p1[1] + y],
+                            [p2[0] + x, p2[1] + y],
+                            [p3[0] + x, p3[1] + y],
+                            [p4[0] + x, p4[1] + y]
                         ],
                         "difficult": False
                     })
+            else:
+                result = predict([new_img])
+                boxes = result["boxes"]
+
+                for box in boxes:
+                    clsid, bbox, score = int(box[0]), box[2:], box[1]
+                    if score >= 0.7:
+                        xmin, ymin, xmax, ymax = bbox
+                        w = int(xmax - xmin)
+                        h = int(ymax - ymin)
+                        x = int(x + xmin)
+                        y = int(y + ymin)
+                        # img = cv2.rectangle(img, (x, y), (x + w, y + h), (0, 0, 255), thickness=1)
+                        # cv2.imshow("", img)
+                        # cv2.waitKey(0)
+                        items.append({
+                            "transcription": str(clsid),
+                            "points": [
+                                [x, y],
+                                [x + w, y],
+                                [x + w, y + h],
+                                [x, y + h]
+                            ],
+                            "difficult": False
+                        })
+
+            cnt += 1
 
     os.makedirs("/home/dong/tmp/tmp3", exist_ok=True)
     img_file_name = f"/home/dong/tmp/tmp3/{pdf_name}-{page_num}.jpg"
