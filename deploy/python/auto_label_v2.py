@@ -93,7 +93,7 @@ def process_img(img_raw, pdf_name, page_num):
             idx = cnt % 11
             new_img = img[y:y + h, x:x + w]
 
-            if idx == 0 or idx == 1:
+            if idx == 0 or idx == 1 or cnt < 11:
                 no = ocr.ocr(new_img, cls=True)
                 for r in no:
                     [p1, p2, p3, p4] = r[0]
@@ -111,25 +111,21 @@ def process_img(img_raw, pdf_name, page_num):
             else:
                 result = predict([new_img])
                 boxes = result["boxes"]
-
-                for box in boxes:
+                if len(boxes) > 0:
+                    box = boxes[boxes[:, 1].argsort()[::-1]][0]
                     clsid, bbox, score = int(box[0]), box[2:], box[1]
                     if score >= 0.7:
                         xmin, ymin, xmax, ymax = bbox
-                        w = int(xmax - xmin)
-                        h = int(ymax - ymin)
-                        x = int(x + xmin)
-                        y = int(y + ymin)
                         # img = cv2.rectangle(img, (x, y), (x + w, y + h), (0, 0, 255), thickness=1)
                         # cv2.imshow("", img)
                         # cv2.waitKey(0)
                         items.append({
                             "transcription": str(clsid),
                             "points": [
-                                [x, y],
-                                [x + w, y],
-                                [x + w, y + h],
-                                [x, y + h]
+                                [x + xmin, y + ymin],
+                                [x + xmax, y + ymin],
+                                [x + xmax, y + ymax],
+                                [x + xmin, y + ymax]
                             ],
                             "difficult": False
                         })
