@@ -8,10 +8,10 @@ import cv2
 import numpy as np
 import fitz
 
-def open_db():
+def open_db(db_name="sigmai"):
     uri = "mongodb://%s:%s@%s:%s" % (quote_plus("admin"), quote_plus("1q2w3e4r5t~!@#$%"), "127.0.0.1", "57017")
     client = MongoClient(uri)
-    db = client["sigmai"]
+    db = client[db_name]
 
     return db, gridfs.GridFS(db)
 
