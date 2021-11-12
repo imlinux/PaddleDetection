@@ -231,6 +231,7 @@ def process_one(pdf_file_path, clazz_id):
                         {
                             "fileId": save_file(student_pdf_filename, student_pdf(pdf_file, page_num)),
                             "name": student_pdf_filename,
+                            "hidden": composition_type is None or composition_type == "" or composition_type == 'WORD'
                         },
                     ]
                     if not score_str.isspace():
@@ -283,6 +284,7 @@ def process_one(pdf_file_path, clazz_id):
                             "score_info": score_info[:5],
                         }
                     })
+                    print(db_obj)
                     db.clazzcircle.insert_one(db_obj)
 
 
@@ -313,6 +315,8 @@ def main():
         ("/home/dong/tmp/zuowen3/JUYE_F_00118.pdf", "170548", True),
         ("/home/dong/tmp/zuowen3/JUYE_F_00119.pdf", "170630", True),
         ("/home/dong/tmp/zuowen3/JUYE_F_00120.pdf", "170648", True),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00130.pdf", "170199", True),
+        ("/home/dong/tmp/zuowen3/JUYE_F_00133.pdf", "170316", False),
     ]
 
     db, _ = open_db()
