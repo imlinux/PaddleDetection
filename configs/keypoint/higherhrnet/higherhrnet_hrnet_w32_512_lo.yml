@@ -64,20 +64,20 @@ TrainDataset:
   !KeypointBottomUpCocoDataset
     image_dir: train
     anno_path: annotations/instance_train.json
-    dataset_dir: dataset/lo_coco
+    dataset_dir: dataset/lo_coco_2021_12_30
     num_joints: *num_joints
 
 EvalDataset:
   !KeypointBottomUpCocoDataset
     image_dir: train
-    anno_path: annotations/instance_train.json
-    dataset_dir: dataset/lo_coco
+    anno_path: annotations/instance_eval.json
+    dataset_dir: dataset/lo_coco_2021_12_30
     num_joints: *num_joints
     test_mode: true
 
 TestDataset:
   !ImageFolder
-    anno_path: annotations/instance_train.json
+    anno_path: annotations/instance_eval.json
 
 worker_num: 8
 global_mean: &global_mean [0.485, 0.456, 0.406]
